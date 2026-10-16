@@ -234,3 +234,17 @@ For this checkout, the generated website username/password and session secret ar
 stored only in local `.env`. Read the APP_USERNAME and APP_PASSWORD values there
 to sign in after completing setup; keep that file private. Existing broker and
 MySQL settings were preserved.
+
+## RELIANCE strategy worker
+
+The strategy worker runs separately from Uvicorn. It defaults to paper execution;
+website login, broker connection, and opening the dashboard do not start it.
+Set `ORB_BROKER_USER_ID` to the connected account ID, then run migrations explicitly
+before starting `uv run python -m app.cli.run_strategy`. Paper mode still needs a
+valid pinned account token for read-only live market data; all fills are simulated.
+
+Only one worker per broker app/account/mode can hold the MySQL advisory lock.
+Use an external process supervisor and keep the worker available through 15:25 IST.
+SIGINT/SIGTERM stops the loop and preserves unresolved state. Stopping the worker
+does not close NRML positions or arrange a future broker square-off. On restart,
+existing fills and orders are reconciled before considering new entries.
