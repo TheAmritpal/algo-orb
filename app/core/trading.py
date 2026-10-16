@@ -15,6 +15,7 @@ class TradingSettings:
     limits: EntryLimits | None = None
     poll_seconds: int = 2
     quote_max_age_seconds: int = 5
+    protective_stop_verified: bool = False
 
 def load_trading_settings() -> TradingSettings:
     load_dotenv(ENV_FILE,override=False)
@@ -33,4 +34,6 @@ def load_trading_settings() -> TradingSettings:
     if poll<2 or not 1<=age<=30: raise ValueError("Invalid polling/freshness interval")
     if mode=="live" and (enabled!="true" or not user or limits is None):
         raise ValueError("Live trading requires explicit enablement, broker account and monetary limits")
-    return TradingSettings(mode,enabled=="true",user or "paper",client,limits,poll,age)
+    verified=os.environ.get("ORB_PROTECTIVE_STOP_VERIFIED","false").lower()
+    if verified not in {"true","false"}:raise ValueError("Invalid protective-stop verification flag")
+    return TradingSettings(mode,enabled=="true",user or "paper",client,limits,poll,age,verified=="true")
