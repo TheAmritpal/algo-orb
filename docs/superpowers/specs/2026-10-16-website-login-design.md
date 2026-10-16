@@ -1,7 +1,7 @@
 # Website login and project structure
 
 Date: 2026-10-16
-Status: Design approved in conversation; written specification awaiting review.
+Status: Written specification approved; code implemented. Database setup awaits REFERENCES grant and final migration/provisioning commands.
 
 ## Purpose and scope
 

@@ -1,16 +1,29 @@
-<!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{{ title }}</title>
-  </head>
-  <body>
-    <main>
-      <h1>{{ title }}</h1>
-      <p>Algorithmic trading application powered by Upstox.</p>
-      <p>Project setup is ready. Trading is not enabled.</p>
-      <p><a href="/auth/upstox/login">Connect Upstox</a></p>
-    </main>
-  </body>
-</html>
+{% extends "base.html" %}
+{% block content %}
+<section class="card dashboard">
+  <header><div class="brand">AO<span>ALGO ORB</span></div>
+    <form action="/logout" method="post" class="logout-form">
+      <input type="hidden" name="csrf_token" value="{{ session.csrf_token }}">
+      <button type="submit" class="secondary">Sign out</button>
+    </form>
+  </header>
+  <p class="eyebrow">DASHBOARD</p>
+  <h1>Your trading workspace.</h1>
+  <p class="muted">Welcome, {{ session.username }}.</p>
+  <div class="broker-panel">
+    <div>
+      <h2>Upstox</h2>
+      <p class="connection-state {{ upstox.state }}" role="status">
+        <span aria-hidden="true">●</span>
+        {% if upstox.state == "connected" %}Connected{% elif upstox.state == "disconnected" %}Disconnected{% else %}Status unavailable{% endif %}
+      </p>
+      {% if upstox.user_id %}<p class="muted">Account: {{ upstox.user_id }}</p>{% endif %}
+      <p class="muted">{{ upstox.message }}</p>
+    </div>
+    {% if upstox.state == "disconnected" %}
+    <a class="button" href="/auth/upstox/login">Connect Upstox <span aria-hidden="true">↗</span></a>
+    {% endif %}
+  </div>
+  <p class="status"><span aria-hidden="true">●</span> Project setup is ready. Trading is not enabled.</p>
+</section>
+{% endblock %}
