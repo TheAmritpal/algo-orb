@@ -118,7 +118,7 @@ Uvicorn access logging so callback authorization codes do not appear in request
 logs. Use the same policy for any reverse proxy. Use HTTPS when deploying beyond
 localhost; the state cookie is marked Secure for HTTPS redirect URLs.
 
-This implements website login, broker authorization and token persistence; it does not submit orders.
+The web application handles login and broker authorization. Order execution belongs to the separate RELIANCE worker described below.
 
 ## Tests
 
@@ -128,7 +128,7 @@ uv run python -m unittest discover -v
 
 Tests simulate broker and database boundaries without using live credentials.
 
-Live trading requires explicit implementation and authorization under AGENTS.md.
+Development and tests never submit live orders. Live deployment requires explicit configuration and authorization under AGENTS.md.
 
 ## Project structure
 
@@ -248,3 +248,109 @@ Use an external process supervisor and keep the worker available through 15:25 I
 SIGINT/SIGTERM stops the loop and preserves unresolved state. Stopping the worker
 does not close NRML positions or arrange a future broker square-off. On restart,
 existing fills and orders are reconciled before considering new entries.
+
+### Strategy behavior
+
+The worker marks RELIANCE equity's 09:15–09:30 IST range and waits for a later
+completed 15-minute candle to close strictly outside it. The earliest signal is
+09:45. Above the range buys a call; below buys a put. It uses the nearest actual
+monthly expiry and the closest listed strike strictly ITM at entry. Strike,
+expiry and units come from current Upstox metadata; two lots is not two units.
+The instrument is resolved by RELIANCE equity's ISIN key `NSE_EQ|INE002A01018`,
+and returned option metadata must identify that underlying and RELIANCE symbol.
+
+Entries use NRML (`product="D"`), a price-bounded LIMIT order, and one durable
+entry allowance per selected account, mode and exchange date. Rejected attempts
+consume that allowance. Partial entry fills are protected and unfilled remainder
+is cancelled after at most a 30-second observation window, subject to broker
+confirmation; no top-ups or re-entry. Old signals are not replayed after restart.
+The last-entry cutoff is 15:00 IST. Holidays and special sessions are skipped.
+
+Stop and target refer to the actual option fill average: entry minus ₹10 and
+entry plus ₹20. This is a trigger policy, not a guaranteed realized loss cap.
+Live protection uses a broker-held stop-limit order. The worker monitors the
+target and initiates the time exit at 15:25 IST. It confirms stop cancellation
+and intervening fills before submitting a replacement sell. Limit/stop-limit
+orders may remain unfilled after gaps or during illiquidity. Exposure remains
+visible until fills confirm closure. NRML itself does not provide a broker
+intraday auto-square-off guarantee.
+
+### Settings and deployment
+
+`ORB_MODE=paper` and `ORB_LIVE_ENABLED=false` are the defaults. Set the pinned
+broker account using `ORB_BROKER_USER_ID`; this does not fall back to whichever
+account connected most recently. Paper execution uses real read-only quotes and
+deterministic simulated fills; it does not model queue priority, market impact,
+fees, or realistic partial fills. Paper/live run histories are separate.
+
+For any future live deployment, all five `ORB_MAX_*` amounts must be finite,
+positive rupee values. `PREMIUM` caps unit premium; `NOTIONAL` caps total entry
+premium (`price × units`); `PLANNED_LOSS` caps the planned `₹10 × units` risk;
+`SPREAD` caps ask-minus-bid; `SLIPPAGE` bounds the sell-limit price below the
+observed bid and protective trigger. Buy limits use the quoted ask, not an
+unbounded market order. Quote freshness defaults to 5 seconds and polling to
+2 seconds. Configuration must match available premium funds and selected lots.
+No real monetary limits have been selected or written to local credentials.
+
+`ORB_PROTECTIVE_STOP_VERIFIED=false` blocks live entries until acceptance of
+protective stop-limit orders has been established in a broker sandbox for the
+intended product. Mock tests verify SDK payloads, not broker/account eligibility.
+A broker can still reject protection after a fill; the worker then reconciles
+and attempts to close confirmed exposure. Do not set the flag based on tests
+alone. The implementation does not issue a live probe to establish eligibility.
+
+Migration revision `0003` adds strategy runs, intents, unique trade fills and
+sanitized events. Preview without a database connection:
+
+```bash
+uv run alembic upgrade head --sql
+```
+
+Apply migrations explicitly during deployment, using a migration-capable account:
+
+```bash
+uv run alembic upgrade head
+```
+
+The runtime account needs SELECT/INSERT/UPDATE on strategy tables, SELECT on
+upstox_tokens, and permission to use MySQL advisory locks. Schema changes never
+run from HTTP handlers. Downgrading 0003 deletes strategy records and must not
+be used to reset a daily entry allowance or to repair an open position.
+Enabling execution, applying migrations and starting a worker are separate
+operations. This development change does not perform them against live services.
+
+### SDK boundary and recovery
+
+Checked against installed `upstox-python-sdk==2.28.0` and the local reference
+checkout `/home/amritpal/Downloads/upstox-python-master/`. The installed public
+V3 class is `OrderApiV3`; its source filename in the reference is
+`order_controller_v_3_api.py`. Execution consistently uses the supported V2
+`OrderApi` interface. Broker tick metadata is converted from paise to rupees.
+See the official [option contracts](https://upstox.com/developer/api-documentation/get-option-contracts/)
+and [place-order](https://upstox.com/developer/api-documentation/place-order/)
+references. Shared SDK requests are throttled to fewer than six per second
+per worker and have bounded timeouts; transport retries are disabled.
+Avoid simultaneous paper/live workers on the same account because broker rate
+limits are shared across processes and the web application.
+
+An order intent and unique tag are saved before submission. An accepted request
+is not a confirmed fill. After a timeout, the worker searches the broker order
+book by ID/tag and requires consistent trade evidence and position quantity.
+Unknown outcomes are not blindly resubmitted. A missing old order, expired token,
+manual trade in the same contract, database outage or inconsistent fill data
+keeps the run in reconciliation_required and blocks new entries.
+
+Keep manual positions out of the strategy's selected contract. Other instruments
+are not closed by this worker, and it never calls an unfiltered exit-all API.
+If an exit is unresolved, inspect the broker order/trade book and actual position
+first; do not restart with a different account, delete records, or resubmit an
+uncertain order. Restore the original account token and database/worker access,
+then restart to reconcile. Token changes take effect on worker restart. If the
+broker cannot supply sufficient historical evidence, resolve exposure through
+the broker and reconcile the stored records explicitly with an operator rather
+than assuming a fill. Previous-day unresolved runs block new entries.
+
+The dashboard is read-only. It shows mode, range, contract, fill average, premium
+levels, remaining units, daily allowance and worker heartbeat. A heartbeat older
+than 30 seconds is stale. Neither a connected broker nor a running web server
+means the trading worker is running.
