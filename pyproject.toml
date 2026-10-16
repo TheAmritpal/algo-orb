@@ -14,5 +14,7 @@ dependencies = [
     "pymysql",
     "upstox-python-sdk",
     "python-dotenv",
+    "alembic>=1.19.0",
+    "sqlalchemy>=2.0.52",
 ]
 
