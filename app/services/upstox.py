@@ -5,19 +5,20 @@ import hmac
 import logging
 import secrets
 import time
+from dataclasses import dataclass
+from typing import Literal
 from urllib.parse import urlencode
 
 import pymysql
 import upstox_client
-from fastapi import APIRouter, Request
+from fastapi import Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from upstox_client.rest import ApiException
 from urllib3.exceptions import HTTPError
 
-from app.config import get_upstox_config
-from app.tokens import save_token
+from app.core.config import get_upstox_config
+from app.repositories.tokens import get_latest_token, save_token
 
-router = APIRouter(prefix="/auth/upstox", tags=["Upstox authentication"])
 logger = logging.getLogger(__name__)
 COOKIE = "upstox_oauth_state"
 COOKIE_PATH = "/auth/upstox"
@@ -96,7 +97,6 @@ def _storage_error(exc: Exception) -> JSONResponse:
     return _error(503, detail)
 
 
-@router.get("/login")
 def login():
     try:
         settings = get_upstox_config()
@@ -128,7 +128,6 @@ def login():
     return response
 
 
-@router.get("/callback")
 def callback(request: Request, code: str = "", state: str = "", error: str = ""):
     try:
         settings = get_upstox_config()
@@ -175,3 +174,70 @@ def callback(request: Request, code: str = "", state: str = "", error: str = "")
     response = RedirectResponse(url="/", status_code=303, headers=PRIVATE_HEADERS)
     response.delete_cookie(COOKIE, path=COOKIE_PATH)
     return response
+
+
+@dataclass(frozen=True)
+class ConnectionStatus:
+    state: Literal["connected", "disconnected", "unavailable"]
+    user_id: str | None = None
+    message: str = ""
+
+
+def connection_status() -> ConnectionStatus:
+    """Validate persisted credentials with a read-only, bounded profile request."""
+    client = None
+    try:
+        settings = get_upstox_config()
+        token = get_latest_token(settings["client_id"])
+        if token is None or not token.access_token.strip():
+            return ConnectionStatus(
+                "disconnected", message="Connect your Upstox account to get started."
+            )
+        configuration = upstox_client.Configuration()
+        configuration.access_token = token.access_token
+        client = upstox_client.ApiClient(configuration)
+        profile = upstox_client.UserApi(client).get_profile(
+            "2.0", _request_timeout=(3, 5)
+        )
+        data = getattr(profile, "data", None)
+        if (
+            getattr(profile, "status", None) != "success"
+            or getattr(data, "user_id", None) != token.user_id
+        ):
+            return ConnectionStatus(
+                "unavailable",
+                message="Unable to confirm your Upstox connection. Please try again shortly.",
+            )
+        return ConnectionStatus(
+            "connected",
+            user_id=token.user_id,
+            message="Your Upstox account is connected.",
+        )
+    except ApiException as exc:
+        if exc.status == 401:
+            return ConnectionStatus(
+                "disconnected",
+                message="Your Upstox session has expired or was revoked. Connect again to continue.",
+            )
+        return ConnectionStatus(
+            "unavailable",
+            message="Unable to check Upstox right now. Please try again shortly.",
+        )
+    except (pymysql.MySQLError, HTTPError, OSError, ValueError, RuntimeError):
+        # Database and broker exceptions may contain credentials or SQL values.
+        return ConnectionStatus(
+            "unavailable",
+            message="Unable to check Upstox right now. Please try again shortly.",
+        )
+    finally:
+        if client is not None:
+            # This SDK creates a ThreadPool even for synchronous calls.
+            for cleanup in (
+                client.rest_client.pool_manager.clear,
+                client.pool.close,
+                client.pool.join,
+            ):
+                try:
+                    cleanup()
+                except (OSError, ValueError, RuntimeError):
+                    pass

@@ -1,23 +1,38 @@
-from pathlib import Path
+"""Application composition; run with uvicorn app.main:app."""
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse
-from fastapi.templating import Jinja2Templates
+from fastapi.responses import RedirectResponse
+from fastapi.staticfiles import StaticFiles
 
-from app.upstox_auth import router as upstox_auth_router
+from app.core.templating import APP_DIRECTORY
+from app.routers import auth, pages, upstox
+from app.services.auth import LoginRequired
 
 app = FastAPI(title="Algo ORB", docs_url=None, redoc_url=None, openapi_url=None)
-app.include_router(upstox_auth_router)
-templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
 
-@app.get("/", response_class=HTMLResponse)
-def home(request: Request):
-    return templates.TemplateResponse(
-        request=request, name="index.html", context={"title": app.title}
+@app.exception_handler(LoginRequired)
+async def login_required(request: Request, exc: LoginRequired):
+    return RedirectResponse("/login", status_code=303)
+
+
+@app.middleware("http")
+async def private_responses(request: Request, call_next):
+    response = await call_next(request)
+    if not request.url.path.startswith("/static/"):
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Pragma"] = "no-cache"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; style-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'self'"
     )
+    return response
 
 
-@app.get("/health")
-def health() -> dict[str, str]:
-    return {"status": "ok"}
+app.mount(
+    "/static", StaticFiles(directory=str(APP_DIRECTORY / "static")), name="static"
+)
+app.include_router(auth.router)
+app.include_router(pages.router)
+app.include_router(upstox.router)

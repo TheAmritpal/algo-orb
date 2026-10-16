@@ -1,11 +1,12 @@
 """Read local configuration without opening external connections."""
 
 import os
+from dataclasses import dataclass
 from pathlib import Path
 
 from dotenv import load_dotenv
 
-ENV_FILE = Path(__file__).resolve().parent.parent / ".env"
+ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
 
 
 def get_upstox_config() -> dict[str, str]:
@@ -41,3 +42,42 @@ def get_mysql_config() -> dict[str, str | int]:
         "password": os.environ["MYSQL_PASSWORD"],
         "database": os.environ["MYSQL_DATABASE"],
     }
+
+
+@dataclass(frozen=True)
+class AuthSettings:
+    secret: str
+    cookie_secure: bool
+
+
+def get_auth_settings() -> AuthSettings:
+    load_dotenv(ENV_FILE, override=False)
+    secret = os.environ.get("APP_SESSION_SECRET", "")
+    if len(secret) < 32 or secret.startswith("replace_"):
+        raise ValueError(
+            "APP_SESSION_SECRET must contain at least 32 random characters"
+        )
+    secure = os.environ.get("APP_COOKIE_SECURE", "true").lower()
+    if secure not in {"true", "false"}:
+        raise ValueError("APP_COOKIE_SECURE must be true or false")
+    return AuthSettings(secret=secret, cookie_secure=secure == "true")
+
+
+def get_admin_credentials() -> tuple[str, str]:
+    load_dotenv(ENV_FILE, override=False)
+    username = os.environ.get("APP_USERNAME", "")
+    password = os.environ.get("APP_PASSWORD", "")
+    if not username.strip() or username != username.strip() or len(username) > 128:
+        raise ValueError(
+            "APP_USERNAME must contain 1 to 128 characters without surrounding spaces"
+        )
+    if (
+        not password.strip()
+        or len(password) > 1024
+        or password.lower() in {"password", "changeme", "admin"}
+        or password.startswith("replace_")
+    ):
+        raise ValueError(
+            "APP_PASSWORD must be configured with a non-placeholder password"
+        )
+    return username, password

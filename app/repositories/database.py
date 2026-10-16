@@ -3,7 +3,7 @@
 import pymysql
 from sqlalchemy.engine import URL
 
-from app.config import get_mysql_config
+from app.core.config import get_mysql_config
 
 
 def get_connection():
