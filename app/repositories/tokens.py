@@ -46,13 +46,17 @@ def get_latest_token(client_id: str) -> UpstoxToken | None:
     finally:
         connection.close()
 
+
 def get_token(client_id: str, user_id: str) -> UpstoxToken | None:
     """Read only the explicitly selected broker account; never fall back."""
-    connection=get_connection()
+    connection = get_connection()
     try:
         with connection.cursor() as cursor:
-            cursor.execute("SELECT user_id, access_token FROM upstox_tokens WHERE client_id=%s AND user_id=%s",(client_id,user_id))
-            row=cursor.fetchone()
+            cursor.execute(
+                "SELECT user_id, access_token FROM upstox_tokens WHERE client_id=%s AND user_id=%s",
+                (client_id, user_id),
+            )
+            row = cursor.fetchone()
             return UpstoxToken(*row) if row else None
     finally:
         connection.close()
