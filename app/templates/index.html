@@ -24,6 +24,39 @@
     <a class="button" href="/auth/upstox/login">Connect Upstox <span aria-hidden="true">↗</span></a>
     {% endif %}
   </div>
-  <p class="status"><span aria-hidden="true">●</span> Project setup is ready. Trading is not enabled.</p>
+  <section class="strategy-panel" aria-labelledby="strategy-heading">
+    <div class="strategy-heading">
+      <div><p class="eyebrow">OPENING RANGE BREAKOUT</p><h2 id="strategy-heading">RELIANCE</h2></div>
+      <span class="strategy-badge">{{ 'Paper · simulated fills' if strategy.mode == 'paper' else 'Live mode' }}</span>
+    </div>
+    <p class="muted">NRML (D) · 2 lots · Nearest monthly expiry · One strike ITM</p>
+    <dl class="strategy-grid">
+      <div><dt>Opening range</dt><dd>09:15–09:30 IST</dd></div>
+      <div><dt>Entry confirmation</dt><dd>15-minute candle close</dd></div>
+      <div><dt>Premium stop / target</dt><dd>−10 / +20 points</dd></div>
+      <div><dt>Daily allowance</dt><dd>{{ 'Entry used' if strategy.run and strategy.run.entry_reserved else 'At most one entry' }}</dd></div>
+      <div><dt>Last entry</dt><dd>15:00 IST</dd></div>
+      <div><dt>App square-off</dt><dd>15:25 IST</dd></div>
+    </dl>
+    <p role="status">{{ strategy.state | replace('_', ' ') | title }} · {{ 'Worker heartbeat current' if strategy.worker_alive else 'Worker not confirmed running' }}</p>
+    <p class="muted">{{ strategy.message }}</p>
+    {% if strategy.run %}
+    {% set run = strategy.run %}
+    <dl class="strategy-grid">
+      <div><dt>Session</dt><dd>{{ run.key.exchange_date }}</dd></div>
+      <div><dt>Range high / low</dt><dd>{{ run.opening.high if run.opening else '—' }} / {{ run.opening.low if run.opening else '—' }}</dd></div>
+      <div><dt>Last signal close</dt><dd>{{ run.processed_candle or '—' }}</dd></div>
+      <div><dt>Worker heartbeat (UTC)</dt><dd>{{ run.heartbeat or '—' }}</dd></div>
+      {% if run.contract %}
+      <div><dt>Contract</dt><dd>{{ run.contract.strike }} {{ run.contract.option_type }} · {{ run.contract.expiry }}</dd></div>
+      <div><dt>Two lots in units</dt><dd>{{ run.contract.quantity }}</dd></div>
+      {% endif %}
+      <div><dt>Filled / remaining units</dt><dd>{{ run.filled_quantity }} / {{ run.remaining_quantity }}</dd></div>
+      <div><dt>Entry average</dt><dd>{{ run.entry_average if run.entry_average is not none else '—' }}</dd></div>
+      <div><dt>Premium stop / target</dt><dd>{{ run.stop if run.stop is not none else '—' }} / {{ run.target if run.target is not none else '—' }}</dd></div>
+    </dl>
+    {% endif %}
+    <p class="muted">NRML positions require the strategy worker to initiate the 15:25 exit and confirm its fill.</p>
+  </section>
 </section>
 {% endblock %}
