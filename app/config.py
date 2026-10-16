@@ -8,6 +8,20 @@ from dotenv import load_dotenv
 ENV_FILE = Path(__file__).resolve().parent.parent / ".env"
 
 
+def get_upstox_config() -> dict[str, str]:
+    load_dotenv(ENV_FILE, override=False)
+    required = ("UPSTOX_API_KEY", "UPSTOX_API_SECRET")
+    missing = [name for name in required if not os.environ.get(name)]
+    if missing:
+        raise ValueError(f"Missing Upstox configuration: {', '.join(missing)}")
+    return {
+        "client_id": os.environ["UPSTOX_API_KEY"],
+        "client_secret": os.environ["UPSTOX_API_SECRET"],
+        "redirect_uri": os.environ.get("UPSTOX_REDIRECT_URI")
+        or "http://localhost:8000/auth/upstox/callback",
+    }
+
+
 def get_mysql_config() -> dict[str, str | int]:
     load_dotenv(ENV_FILE, override=False)
     required = ("MYSQL_HOST", "MYSQL_USER", "MYSQL_PASSWORD", "MYSQL_DATABASE")

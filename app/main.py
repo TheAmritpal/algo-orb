@@ -4,7 +4,10 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
-app = FastAPI(title="Algo ORB")
+from app.upstox_auth import router as upstox_auth_router
+
+app = FastAPI(title="Algo ORB", docs_url=None, redoc_url=None, openapi_url=None)
+app.include_router(upstox_auth_router)
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
 
