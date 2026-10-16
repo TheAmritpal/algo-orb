@@ -1,0 +1,18 @@
+[project]
+name = "algo-orb"
+version = "0.1.0"
+description = "FastAPI foundation for Upstox algorithmic trading"
+readme = "README.md"
+authors = [
+    { name = "TheAmritpal", email = "amritpal@hotmail.co.in" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi",
+    "uvicorn",
+    "jinja2",
+    "pymysql",
+    "upstox-python-sdk",
+    "python-dotenv",
+]
+
