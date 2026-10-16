@@ -99,3 +99,14 @@ class TokenStorageTests(unittest.TestCase):
         ):
             get_latest_token("client")
         self.connection.close.assert_called_once()
+
+class ExactTokenTests(unittest.TestCase):
+    def test_exact_account_is_selected_without_latest_fallback(self):
+        from app.repositories.tokens import get_token
+        connection=MagicMock();cursor=connection.cursor.return_value.__enter__.return_value
+        cursor.fetchone.return_value=("pinned","secret-token")
+        with patch("app.repositories.tokens.get_connection",return_value=connection):
+            token=get_token("app","pinned")
+        self.assertEqual(token.user_id,"pinned")
+        self.assertEqual(cursor.execute.call_args.args[1],("app","pinned"))
+        self.assertNotIn("secret-token",repr(token))
