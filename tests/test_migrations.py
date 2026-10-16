@@ -195,3 +195,17 @@ class PartialMigrationTests(unittest.TestCase):
         ):
             self.revision.upgrade()
         create.assert_not_called()
+
+class StrategyMigrationTests(unittest.TestCase):
+    def test_strategy_schema_and_safe_downgrade(self):
+        out=io.StringIO(); cfg=Config(str(ROOT / "alembic.ini"),output_buffer=out)
+        command.upgrade(cfg,"head",sql=True)
+        sql=out.getvalue()
+        for table in ("strategy_runs","strategy_orders","strategy_fills","strategy_events"):
+            self.assertIn("CREATE TABLE "+table,sql)
+        self.assertIn("uq_strategy_day",sql)
+        self.assertIn("uq_strategy_trade",sql)
+        self.assertIn("DECIMAL(20, 8)",sql)
+        out=io.StringIO();command.downgrade(Config(str(ROOT/"alembic.ini"),output_buffer=out),"0003:0002",sql=True)
+        self.assertNotIn("DROP TABLE users",out.getvalue())
+        self.assertLess(out.getvalue().index("DROP TABLE strategy_fills"),out.getvalue().index("DROP TABLE strategy_orders"))
