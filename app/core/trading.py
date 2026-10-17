@@ -35,7 +35,9 @@ def load_trading_settings() -> TradingSettings:
         values.append(money(Decimal(raw)) if raw else None)
     limits = EntryLimits(*values) if all(v is not None for v in values) else None
     user = os.environ.get("ORB_BROKER_USER_ID", "").strip()
-    client = os.environ.get("UPSTOX_API_KEY", "paper")
+    client = os.environ.get("UPSTOX_LIVE_API_KEY") or os.environ.get(
+        "UPSTOX_API_KEY", "paper"
+    )
     poll = int(os.environ.get("ORB_POLL_SECONDS", "2"))
     age = int(os.environ.get("ORB_QUOTE_MAX_AGE_SECONDS", "5"))
     if poll < 2 or not 1 <= age <= 30:

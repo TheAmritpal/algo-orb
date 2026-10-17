@@ -6,6 +6,7 @@ from fastapi.responses import HTMLResponse
 from app.core.templating import templates
 from app.repositories.sessions import Session
 from app.services.auth import require_session
+from app.services.sandbox import sandbox_status
 from app.services.strategy_status import get_strategy_status
 from app.services.upstox import connection_status
 
@@ -22,6 +23,7 @@ def home(request: Request, session: Annotated[Session, Depends(require_session)]
             "session": session,
             "upstox": connection_status(),
             "strategy": get_strategy_status(),
+            "sandbox": sandbox_status(),
         },
     )
 
