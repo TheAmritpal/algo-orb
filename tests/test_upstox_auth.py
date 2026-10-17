@@ -180,6 +180,100 @@ class UpstoxAuthTests(unittest.TestCase):
         self.assertNotIn(b"test-secret", body)
         self.assertIn("no-store", headers["cache-control"])
 
+    def test_token_errors_identify_safe_broker_codes_without_leaking_payloads(self):
+        cases = (
+            ("UDAPI100069", "UPSTOX_API_SECRET"),
+            ("UDAPI100070", "UPSTOX_REDIRECT_URI"),
+            ("UDAPI100057", "authorization code"),
+        )
+        for code, instruction in cases:
+            with self.subTest(code=code):
+                state, cookie = self.login()
+                error = ApiException(status=400, reason="test-secret")
+                error.body = json.dumps({"errors": [{
+                    "errorCode": code,
+                    "message": "test-secret auth-code test-access-token",
+                }]})
+                with (
+                    patch("upstox_client.LoginApi.token", side_effect=error) as exchange,
+                    patch("app.services.upstox.save_token") as save,
+                    self.assertLogs("app.services.upstox", level="ERROR") as logs,
+                ):
+                    status, headers, body = self.callback(state, cookie)
+                self.assertEqual(status, 502)
+                self.assertIn(instruction, json.loads(body)["detail"])
+                self.assertIn(code, json.loads(body)["detail"])
+                self.assertIn(code, " ".join(logs.output))
+                self.assertIn("no-store", headers["cache-control"])
+                self.assertIn("Max-Age=0", headers["set-cookie"])
+                exchange.assert_called_once()
+                save.assert_not_called()
+                for secret in ("test-secret", "auth-code", "test-access-token"):
+                    self.assertNotIn(secret, body.decode())
+                    self.assertNotIn(secret, " ".join(logs.output))
+
+    def test_unknown_and_malformed_broker_payloads_remain_private(self):
+        for payload in (
+            None, "not json test-secret", "[]", "null",
+            '{"errors": null}', '{"errors": [null, 3, "test-secret"]}',
+            '{"errors": [{"errorCode": ["test-secret"]}]}',
+            '{"errors": [{"errorCode": "test-secret"}]}',
+            '{"errors": [{"error_code": "UDAPI100057"}]}',
+        ):
+            with self.subTest(payload=payload):
+                state, cookie = self.login()
+                error = ApiException(status=400, reason="test-secret")
+                error.body = payload
+                with (
+                    patch("upstox_client.LoginApi.token", side_effect=error),
+                    self.assertLogs("app.services.upstox", level="ERROR") as logs,
+                ):
+                    status, _, body = self.callback(state, cookie)
+                self.assertEqual(status, 502)
+                self.assertNotIn("test-secret", body.decode())
+                self.assertNotIn("test-secret", " ".join(logs.output))
+                if payload and "UDAPI100057" in payload:
+                    self.assertIn("authorization code", json.loads(body)["detail"])
+
+    def test_unauthorized_token_exchange_preserves_other_upstox_codes(self):
+        for broker_code, instruction in (
+            ("UDAPI100016", "credentials"),
+            ("UDAPI100073", "inactive"),
+            ("UDAPI100058", "Reactivate"),
+            ("UDAPI999999", "HTTP 401"),
+        ):
+            with self.subTest(broker_code=broker_code):
+                state, cookie = self.login()
+                error = ApiException(status=401, reason="test-secret")
+                error.body = json.dumps({"errors": [{
+                    "errorCode": broker_code,
+                    "message": "test-secret auth-code",
+                }]}).encode()
+                with (
+                    patch("upstox_client.LoginApi.token", side_effect=error),
+                    self.assertLogs("app.services.upstox", level="ERROR") as logs,
+                ):
+                    status, _, body = self.callback(state, cookie)
+                self.assertEqual(status, 502)
+                self.assertIn(broker_code, body.decode())
+                self.assertIn(instruction, body.decode())
+                self.assertIn(broker_code, " ".join(logs.output))
+                self.assertNotIn("test-secret", " ".join(logs.output))
+                self.assertNotIn("test-secret", body.decode())
+
+    def test_network_failure_has_safe_diagnostics_and_no_retry(self):
+        state, cookie = self.login()
+        with (
+            patch("upstox_client.LoginApi.token", side_effect=OSError("test-secret")) as exchange,
+            self.assertLogs("app.services.upstox", level="ERROR") as logs,
+        ):
+            status, _, body = self.callback(state, cookie)
+        self.assertEqual(status, 502)
+        self.assertIn("network", json.loads(body)["detail"])
+        self.assertIn("OSError", " ".join(logs.output))
+        self.assertNotIn("test-secret", " ".join(logs.output))
+        exchange.assert_called_once()
+
     def test_missing_token_or_user_id_is_rejected(self):
         for result in (
             SimpleNamespace(access_token="", user_id="TESTUSER"),

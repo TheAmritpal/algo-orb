@@ -2,7 +2,9 @@
 
 import hashlib
 import hmac
+import json
 import logging
+import re
 import secrets
 import time
 from dataclasses import dataclass
@@ -97,6 +99,56 @@ def _storage_error(exc: Exception) -> JSONResponse:
     return _error(503, detail)
 
 
+def _token_exchange_error(exc: Exception) -> JSONResponse:
+    # Only numeric Upstox codes and local messages may leave this boundary. Broker bodies,
+    # reasons, headers and exception text can contain credentials or auth codes.
+    instructions = {
+        "UDAPI100058": "Your Upstox account has no active trading segments. Reactivate the segments through the Upstox app or website, then start a fresh Upstox login. Contact Upstox support if reactivation is unavailable.",
+        "UDAPI100016": "Upstox rejected the credentials. Verify UPSTOX_API_KEY and UPSTOX_API_SECRET belong to the same app, restart the app, and start Upstox login again.",
+        "UDAPI100073": "Your Upstox API client is inactive. Check the app in the Upstox developer console or contact Upstox support before starting login again.",
+        "UDAPI100069": "Upstox rejected the API credentials. Check UPSTOX_API_KEY and UPSTOX_API_SECRET in .env, restart the app, and start Upstox login again.",
+        "UDAPI100070": "Upstox rejected the redirect URI. Set UPSTOX_REDIRECT_URI to exactly the redirect URI registered for your Upstox app, restart the app, and start Upstox login again.",
+        "UDAPI100057": "Upstox rejected the authorization code. It may be expired or already used. Start Upstox login again; do not refresh the callback page.",
+    }
+    broker_code = None
+    status = None
+    if isinstance(exc, ApiException):
+        status = exc.status if type(exc.status) is int else None
+        body = exc.body
+        if isinstance(body, (str, bytes)) and len(body) <= 65536:
+            try:
+                payload = json.loads(body)
+            except (ValueError, UnicodeError, RecursionError):
+                payload = None
+            errors = payload.get("errors") if isinstance(payload, dict) else None
+            if isinstance(errors, list):
+                for error in errors:
+                    if not isinstance(error, dict):
+                        continue
+                    code = error.get("errorCode", error.get("error_code"))
+                    if isinstance(code, str) and re.fullmatch(r"UDAPI[0-9]{1,12}", code):
+                        broker_code = code
+                        if code in instructions:
+                            break
+    logger.error(
+        "Upstox token exchange failed: error_type=%s http_status=%s broker_code=%s",
+        type(exc).__name__,
+        status,
+        broker_code,
+    )
+    if broker_code in instructions:
+        detail = instructions[broker_code]
+    elif status == 401:
+        detail = "Upstox rejected the token exchange (HTTP 401). Verify UPSTOX_API_KEY and UPSTOX_API_SECRET belong to the same active Upstox app, restart the app, and start a fresh login. The authorization code must be new and unused."
+    elif isinstance(exc, (HTTPError, OSError)):
+        detail = "Upstox token exchange failed due to a network or TLS error. Check server connectivity and start Upstox login again."
+    else:
+        detail = "Upstox token exchange failed. Check the server log for the error type and HTTP status, then start Upstox login again."
+    if broker_code is not None:
+        detail += f" (Upstox {broker_code})"
+    return _error(502, detail)
+
+
 def login():
     try:
         settings = get_upstox_config()
@@ -151,8 +203,8 @@ def callback(request: Request, code: str = "", state: str = "", error: str = "")
             grant_type="authorization_code",
             _request_timeout=15,
         )
-    except (ApiException, HTTPError, OSError, ValueError):
-        return _error(502, "Upstox token exchange failed. Start Upstox login again.")
+    except (ApiException, HTTPError, OSError, ValueError) as exc:
+        return _token_exchange_error(exc)
     finally:
         api.api_client.rest_client.pool_manager.clear()
 
