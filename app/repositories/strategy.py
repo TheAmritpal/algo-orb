@@ -41,7 +41,6 @@ ALLOWED = {
     "entry_average",
     "stop",
     "target",
-    "heartbeat",
     "message",
     "entry_reserved",
 }
@@ -159,8 +158,8 @@ def _save(c, run, expected):
         opening_low=run.opening.low if run.opening else None,
         contract=dump(asdict(run.contract)) if run.contract else None,
     )
-    for k in ("heartbeat", "processed_candle"):
-        columns[k] = utc(columns[k])
+    # Heartbeat writes have their own method and must survive older run snapshots.
+    columns["processed_candle"] = utc(columns["processed_candle"])
     query = ", ".join(f"`{k}`=%s" for k in columns)
     c.execute(
         f"UPDATE strategy_runs SET {query}, state=%s, version=version+1 WHERE id=%s AND version=%s",

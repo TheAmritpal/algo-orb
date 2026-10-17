@@ -263,7 +263,9 @@ Entries use NRML (`product="D"`), a price-bounded LIMIT order, and one durable
 entry allowance per selected account, mode and exchange date. Rejected attempts
 consume that allowance. Partial entry fills are protected and unfilled remainder
 is cancelled after at most a 30-second observation window, subject to broker
-confirmation; no top-ups or re-entry. Old signals are not replayed after restart.
+confirmation; no top-ups or re-entry. A stop fill, target hit, rejected protection
+or off-tick fill average cancels the pending remainder immediately before
+closing confirmed exposure. Old signals are not replayed after restart.
 The last-entry cutoff is 15:00 IST. Holidays and special sessions are skipped.
 
 Stop and target refer to the actual option fill average: entry minus ₹10 and
@@ -280,7 +282,8 @@ intraday auto-square-off guarantee.
 `ORB_MODE=paper` and `ORB_LIVE_ENABLED=false` are the defaults. Set the pinned
 broker account using `ORB_BROKER_USER_ID`; this does not fall back to whichever
 account connected most recently. Paper execution uses real read-only quotes and
-deterministic simulated fills; it does not model queue priority, market impact,
+deterministic simulated fills. Triggered stop-limit state survives gap rebounds
+and restarts, and stale quotes cannot produce fills. It does not model queue priority, market impact,
 fees, or realistic partial fills. Paper/live run histories are separate.
 
 For any future live deployment, all five `ORB_MAX_*` amounts must be finite,
@@ -329,7 +332,9 @@ V3 class is `OrderApiV3`; its source filename in the reference is
 See the official [option contracts](https://upstox.com/developer/api-documentation/get-option-contracts/)
 and [place-order](https://upstox.com/developer/api-documentation/place-order/)
 references. Shared SDK requests are throttled to fewer than six per second
-per worker and have bounded timeouts; transport retries are disabled.
+per worker and have bounded timeouts; transport retries are disabled. MySQL
+connection/read/write timeouts are five seconds. Transient market reads before
+reservation use bounded retry backoff without consuming the entry allowance.
 Avoid simultaneous paper/live workers on the same account because broker rate
 limits are shared across processes and the web application.
 

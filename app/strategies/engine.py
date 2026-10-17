@@ -5,6 +5,7 @@ from decimal import Decimal
 from uuid import uuid4
 
 from app.services.trading_broker import bounded_sell, validate_entry
+from app.services.trading_market import TradingUnavailable
 from app.strategies.models import TERMINAL, BrokerOrder, OrderRequest, RunKey
 from app.strategies.rules import (
     IST,
@@ -116,7 +117,10 @@ class StrategyEngine:
 
     def _quote(self, run, now):
         quote = self.market.quote(run.contract.instrument_key)
-        if quote is None or not quote.fresh(now, self.settings.quote_max_age_seconds):
+        received_at = self.clock() if self.clock else now
+        if quote is None or not quote.fresh(
+            received_at, self.settings.quote_max_age_seconds
+        ):
             raise ValueError("Fresh exit pricing unavailable")
         return quote
 
@@ -174,16 +178,49 @@ class StrategyEngine:
             deadline = run.key.exchange_date < now.astimezone(
                 IST
             ).date() or now.astimezone(IST).time() >= time(15, 25)
-            # Protect any partial entry immediately; then bound the remaining entry wait.
+            # Cancel the unfilled entry immediately once any exit condition occurs.
+            # Keeping it working after a partial stop-out could reopen exposure.
+            forced_exit = None
             if entry.status not in TERMINAL:
-                if run.remaining_quantity:
-                    stop, target = premium_levels(
-                        run.entry_average, run.contract.tick_size
-                    )
-                    run = self._state(run, "entry_pending", stop=stop, target=target)
-                    if not deadline:
+                intents = self._intents(run)
+                if deadline:
+                    forced_exit = "time"
+                elif any(i.purpose != "entry" and i.fills for i in intents):
+                    forced_exit = "partial position exit"
+                elif any(
+                    i.purpose == "stop" and i.status == "rejected" for i in intents
+                ):
+                    forced_exit = "protective stop rejected"
+                if run.remaining_quantity and forced_exit is None:
+                    try:
+                        stop, target = premium_levels(
+                            run.entry_average, run.contract.tick_size
+                        )
+                    except ValueError:
+                        forced_exit = "unrepresentable partial premium protection"
+                    else:
+                        run = self._state(
+                            run, "entry_pending", stop=stop, target=target
+                        )
                         run = self._protect(run, now)
-                if deadline or (now - entry.submitted_at).total_seconds() >= 30:
+                        intents = self._intents(run)
+                        if any(i.purpose != "entry" and i.fills for i in intents):
+                            forced_exit = "partial position exit"
+                        elif any(
+                            i.purpose == "stop" and i.status == "rejected"
+                            for i in intents
+                        ):
+                            forced_exit = "protective stop rejected"
+                        else:
+                            try:
+                                quote = self._quote(run, now)
+                                forced_exit = exit_reason(
+                                    now, quote, run.stop, run.target
+                                )
+                            except (ValueError, TradingUnavailable):
+                                # Preserve protection, but do not postpone entry cancellation.
+                                pass
+                if forced_exit or (now - entry.submitted_at).total_seconds() >= 30:
                     run = self._cancel(run, entry)
                     entry = next(i for i in self._intents(run) if i.purpose == "entry")
                 else:
@@ -200,6 +237,8 @@ class StrategyEngine:
                     if run.filled_quantity
                     else "Entry ended without fills",
                 )
+            if forced_exit:
+                return self._exit(run, now, forced_exit)
             active_exits = [
                 i
                 for i in self._intents(run)
@@ -282,6 +321,7 @@ class StrategyEngine:
         if now.astimezone(IST).time() > time(15):
             self._state(run, "skipped", message="Entry cutoff passed")
             return
+        had_signal = False
         try:
             snapshot = self.market.snapshot(now, None)
             if not snapshot.normal_session:
@@ -293,11 +333,13 @@ class StrategyEngine:
             signal = breakout(snapshot.candles, opening, now, run.processed_candle)
             if signal is None:
                 return
+            had_signal = True
             uq = snapshot.underlying_quote
+            received_at = self.clock() if self.clock else now
             if (
                 uq is None
                 or uq.instrument_key != UNDERLYING
-                or not uq.fresh(now, self.settings.quote_max_age_seconds)
+                or not uq.fresh(received_at, self.settings.quote_max_age_seconds)
             ):
                 raise ValueError("Underlying quote unavailable")
             selected = select_contract(
@@ -307,7 +349,6 @@ class StrategyEngine:
                 run,
                 "waiting_signal",
                 contract=selected,
-                processed_candle=signal.candle_close,
             )
             if any(
                 p.instrument == selected.instrument_key and p.quantity
@@ -317,19 +358,30 @@ class StrategyEngine:
             if not self.broker.supports_protective_stop(selected):
                 raise ValueError("Protective stop capability not verified")
             quote = self.market.quote(selected.instrument_key)
-            price = validate_entry(
-                selected, quote, now, self.settings, self.broker.available_funds()
+            funds = self.broker.available_funds()
+            received_at = self.clock() if self.clock else now
+            price = validate_entry(selected, quote, received_at, self.settings, funds)
+            run = self._state(
+                run, "waiting_signal", processed_candle=signal.candle_close
             )
-            # Recheck wall time through ownership/worker scheduling; validation consumes current snapshot time.
+            # Recheck wall time after persistence before any broker mutation.
             run = self._submit(
                 run, "entry", self._request(run, "BUY", selected.quantity, price)
             )
             if run.filled_quantity:
                 self._manage(run, now)
-        except Exception:  # noqa: BLE001 -- fail closed without leaking broker/SQL secrets
+        except Exception as exc:  # noqa: BLE001 -- fail closed without leaking broker/SQL secrets
             current = self.repository.get_run(run.id)
             if current.entry_reserved:
                 self._fail(current, "Entry outcome uncertain; reconciliation required")
+            elif not had_signal or isinstance(exc, TradingUnavailable):
+                self._state(
+                    current, current.state, message="Waiting for fresh market data"
+                )
+                # Let the worker apply bounded read backoff; no mutation was attempted.
+                raise TradingUnavailable(
+                    "Market data temporarily unavailable"
+                ) from None
             else:
                 self._state(
                     current,

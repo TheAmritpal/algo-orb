@@ -1,13 +1,16 @@
 """Deterministic simulated orders, clearly separated from broker fills."""
 
+from dataclasses import replace
 from decimal import Decimal
 
 from app.strategies.models import TERMINAL, BrokerOrder, BrokerPosition, Fill
 
 
 class PaperBroker:
-    def __init__(self, quote_provider):
+    def __init__(self, quote_provider, *, clock=None, quote_max_age_seconds=5):
         self.quote_provider = quote_provider
+        self.clock = clock
+        self.quote_max_age_seconds = quote_max_age_seconds
         self.orders = {}
         self.requests = {}
 
@@ -32,9 +35,23 @@ class PaperBroker:
             return order
         request = self.requests[order.broker_id]
         q = self.quote_provider(request.instrument)
-        if q is None:
+        if q is None or (
+            self.clock and not q.fresh(self.clock(), self.quote_max_age_seconds)
+        ):
             return order
-        triggered = request.order_type != "SL" or q.bid <= request.trigger_price
+        triggered = (
+            request.order_type != "SL"
+            or order.status == "open"
+            or q.bid <= request.trigger_price
+        )
+        if (
+            request.order_type == "SL"
+            and triggered
+            and order.status == "trigger_pending"
+        ):
+            # Once triggered this is a working limit order, including across restarts.
+            order = replace(order, status="open")
+            self.orders[order.broker_id] = order
         price = q.ask if request.side == "BUY" else q.bid
         executable = (
             price <= request.price if request.side == "BUY" else price >= request.price

@@ -136,8 +136,8 @@ Task 1 defines frozen dataclasses and enums in app/strategies/models.py. Use tim
 
 ## Plan self-review
 
-Coverage: rules/settings (Task 1); durable state/concurrency/schema (Task 2); SDK, token binding, funds/limits, paper and broker responses (Task 3); partial fills, stop lifecycle, uncertain outcomes, daily allowance and timed exits (Task 4); worker availability/shutdown/session calendar (Task 5); authenticated observability (Task 6); end-to-end checks and delivery (Task 7). All five Review Focus items have named cases in their owning tasks. Shared methods/types are defined before consumption. Implementation and mocked verification are complete; independent branch review is pending.
+Coverage: rules/settings (Task 1); durable state/concurrency/schema (Task 2); SDK, token binding, funds/limits, paper and broker responses (Task 3); partial fills, stop lifecycle, uncertain outcomes, daily allowance and timed exits (Task 4); worker availability/shutdown/session calendar (Task 5); authenticated observability (Task 6); end-to-end checks and delivery (Task 7). All five Review Focus items have named cases in their owning tasks. Shared methods/types are defined before consumption. Implementation and mocked verification are complete; review fixes and final verification are complete; see the verification record for the independent-review limitation.
 
 ## Handoff
 
-User approved the plan and selected Native execution. Tasks 1–7 were implemented sequentially using executing-plans. A whole-branch independent review follows implementation; no per-task implementer agents were used.
+User approved the plan and selected Native execution. Tasks 1–7 were implemented sequentially using executing-plans. A whole-branch independent review was attempted but hit an external usage limit; the author completed the review and verified fixes. No per-task implementer agents were used.

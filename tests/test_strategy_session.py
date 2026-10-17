@@ -138,7 +138,7 @@ class SessionTests(unittest.TestCase):
             market,
             broker,
             MagicMock(spec=["assert_owned"]),
-            clock=lambda: at(15, 0, 1),
+            clock=MagicMock(side_effect=[at(), at(), at(15, 0, 1)]),
         )
         engine.tick(at())
         self.assertEqual(len(broker.orders), 0)

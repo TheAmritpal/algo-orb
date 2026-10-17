@@ -224,6 +224,10 @@ class BrokerPosition:
     product: str
     quantity: int
 
+    def __post_init__(self):
+        if type(self.quantity) is not int or not self.instrument or not self.product:
+            raise ValueError("Invalid broker position identity or quantity")
+
 
 @dataclass(frozen=True)
 class EntryLimits:

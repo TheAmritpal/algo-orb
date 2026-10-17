@@ -19,6 +19,7 @@ class StrategyStatus:
 
 def get_strategy_status(*, now=None):
     now = now or datetime.now(UTC)
+    settings = None
     try:
         settings = load_trading_settings()
         if settings.user_id == "paper":
@@ -55,5 +56,6 @@ def get_strategy_status(*, now=None):
     except Exception:  # noqa: BLE001 -- fail closed without leaking broker/SQL secrets
         return StrategyStatus(
             "unavailable",
+            mode=settings.mode if settings is not None else "unknown",
             message="Strategy status unavailable. Check worker configuration and migrated database.",
         )

@@ -27,7 +27,7 @@
   <section class="strategy-panel" aria-labelledby="strategy-heading">
     <div class="strategy-heading">
       <div><p class="eyebrow">OPENING RANGE BREAKOUT</p><h2 id="strategy-heading">RELIANCE</h2></div>
-      <span class="strategy-badge">{{ 'Paper · simulated fills' if strategy.mode == 'paper' else 'Live mode' }}</span>
+      <span class="strategy-badge">{{ 'Paper · simulated fills' if strategy.mode == 'paper' else 'Live mode' if strategy.mode == 'live' else 'Execution mode unavailable' }}</span>
     </div>
     <p class="muted">NRML (D) · 2 lots · Nearest monthly expiry · One strike ITM</p>
     <dl class="strategy-grid">
