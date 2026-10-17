@@ -50,7 +50,15 @@ def build_components(settings: TradingSettings) -> Components:
         market = MarketData(client)
         repo = StrategyRepository()
         lock = WorkerLock(settings.client_id, settings.user_id, settings.mode)
-        broker = PaperBroker(market.quote) if settings.mode == "paper" else live_broker
+        broker = (
+            PaperBroker(
+                market.quote,
+                clock=lambda: datetime.now(UTC),
+                quote_max_age_seconds=settings.quote_max_age_seconds,
+            )
+            if settings.mode == "paper"
+            else live_broker
+        )
         engine = StrategyEngine(
             settings,
             repo,

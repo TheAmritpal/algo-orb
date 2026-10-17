@@ -7,7 +7,9 @@ from app.core.config import get_mysql_config
 
 
 def get_connection():
-    return pymysql.connect(**get_mysql_config())
+    return pymysql.connect(
+        **get_mysql_config(), connect_timeout=5, read_timeout=5, write_timeout=5
+    )
 
 
 def get_sqlalchemy_url() -> URL:
