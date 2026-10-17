@@ -12,7 +12,7 @@
   <p class="muted">Welcome, {{ session.username }}.</p>
   <div class="broker-panel">
     <div>
-      <h2>Upstox</h2>
+      <h2>Upstox · Live app</h2>
       <p class="connection-state {{ upstox.state }}" role="status">
         <span aria-hidden="true">●</span>
         {% if upstox.state == "connected" %}Connected{% elif upstox.state == "disconnected" %}Disconnected{% else %}Status unavailable{% endif %}
@@ -24,6 +24,22 @@
     <a class="button" href="/auth/upstox/login">Connect Upstox <span aria-hidden="true">↗</span></a>
     {% endif %}
   </div>
+  <section class="broker-panel" aria-labelledby="sandbox-heading">
+    <div>
+      <h2 id="sandbox-heading">Upstox · Sandbox app</h2>
+      <p role="status" class="muted">{{ sandbox }}</p>
+      <p class="muted">Open Sandbox Apps in Upstox, select your sandbox app, and use Generate access token. Sandbox orders use no real money.</p>
+      <a class="button" href="/auth/upstox/sandbox/login">Open sandbox app <span aria-hidden="true">↗</span></a>
+      <p class="muted">Save the generated sandbox token below. Live app login uses the separate connection above.</p>
+      <form action="/auth/upstox/sandbox/token" method="post" autocomplete="off">
+        <input type="hidden" name="csrf_token" value="{{ session.csrf_token }}">
+        <label for="sandbox-token">Sandbox access token</label>
+        <input id="sandbox-token" name="access_token" type="password" required maxlength="4096" autocomplete="off">
+        <button type="submit">Save sandbox token</button>
+      </form>
+      <p class="muted">Saving a token does not place orders or start the strategy. The sandbox order test runs separately; full strategy simulation uses Paper mode.</p>
+    </div>
+  </section>
   <section class="strategy-panel" aria-labelledby="strategy-heading">
     <div class="strategy-heading">
       <div><p class="eyebrow">OPENING RANGE BREAKOUT</p><h2 id="strategy-heading">RELIANCE</h2></div>

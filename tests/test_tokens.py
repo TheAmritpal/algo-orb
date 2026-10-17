@@ -30,7 +30,8 @@ class TokenStorageTests(unittest.TestCase):
         self.assertIn("ON DUPLICATE KEY UPDATE", sql)
         self.assertNotIn("token'with-quotes", sql)
         self.assertEqual(
-            params, ("client", "USER1", "token'with-quotes", "token'with-quotes")
+            params,
+            ("client", "USER1", "token'with-quotes", "live", "token'with-quotes"),
         )
         self.connection.commit.assert_called_once()
         self.connection.close.assert_called_once()
@@ -71,7 +72,7 @@ class TokenStorageTests(unittest.TestCase):
         ):
             result = get_latest_token("client'quoted")
         sql, params = self.cursor.execute.call_args.args
-        self.assertEqual(params, ("client'quoted",))
+        self.assertEqual(params, ("client'quoted", "live"))
         self.assertNotIn("client'quoted", sql)
         self.assertIn("ORDER BY updated_at DESC", sql)
         self.assertIn("LIMIT 1", sql)
@@ -111,5 +112,5 @@ class ExactTokenTests(unittest.TestCase):
         with patch("app.repositories.tokens.get_connection", return_value=connection):
             token = get_token("app", "pinned")
         self.assertEqual(token.user_id, "pinned")
-        self.assertEqual(cursor.execute.call_args.args[1], ("app", "pinned"))
+        self.assertEqual(cursor.execute.call_args.args[1], ("app", "pinned", "live"))
         self.assertNotIn("secret-token", repr(token))

@@ -11,16 +11,35 @@ ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
 
 def get_upstox_config() -> dict[str, str]:
     load_dotenv(ENV_FILE, override=False)
-    required = ("UPSTOX_API_KEY", "UPSTOX_API_SECRET")
+    prefix = (
+        "UPSTOX_LIVE_"
+        if any(
+            os.environ.get("UPSTOX_LIVE_" + key) for key in ("API_KEY", "API_SECRET")
+        )
+        else "UPSTOX_"
+    )
+    required = (prefix + "API_KEY", prefix + "API_SECRET")
     missing = [name for name in required if not os.environ.get(name)]
     if missing:
         raise ValueError(f"Missing Upstox configuration: {', '.join(missing)}")
     return {
-        "client_id": os.environ["UPSTOX_API_KEY"],
-        "client_secret": os.environ["UPSTOX_API_SECRET"],
-        "redirect_uri": os.environ.get("UPSTOX_REDIRECT_URI")
+        "client_id": os.environ[prefix + "API_KEY"],
+        "client_secret": os.environ[prefix + "API_SECRET"],
+        "redirect_uri": os.environ.get(prefix + "REDIRECT_URI")
+        or os.environ.get("UPSTOX_REDIRECT_URI")
         or "http://localhost:8000/auth/upstox/callback",
     }
+
+
+def get_sandbox_config() -> dict[str, str]:
+    load_dotenv(ENV_FILE, override=False)
+    client_id = os.environ.get("UPSTOX_SANDBOX_API_KEY", "").strip()
+    user_id = os.environ.get("UPSTOX_SANDBOX_USER_ID", "sandbox").strip()
+    if not client_id or not user_id or len(client_id) > 255 or len(user_id) > 100:
+        raise ValueError("Configure sandbox app and account identifier")
+    if not client_id.isascii() or not user_id.isascii():
+        raise ValueError("Sandbox identifiers must be ASCII")
+    return {"client_id": client_id, "user_id": user_id}
 
 
 def get_mysql_config() -> dict[str, str | int]:

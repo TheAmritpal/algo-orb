@@ -30,6 +30,10 @@ class Components:
 
 
 def build_components(settings: TradingSettings) -> Components:
+    if settings.mode not in {"paper", "live"}:
+        raise ValueError(
+            "Full strategy execution supports paper or live; use the sandbox order probe for sandbox APIs"
+        )
     token = get_token(settings.client_id, settings.user_id)
     if token is None:
         raise ValueError(

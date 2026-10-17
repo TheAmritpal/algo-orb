@@ -355,7 +355,87 @@ broker cannot supply sufficient historical evidence, resolve exposure through
 the broker and reconcile the stored records explicitly with an operator rather
 than assuming a fill. Previous-day unresolved runs block new entries.
 
-The dashboard is read-only. It shows mode, range, contract, fill average, premium
+The strategy dashboard is read-only. It shows mode, range, contract, fill average, premium
 levels, remaining units, daily allowance and worker heartbeat. A heartbeat older
 than 30 seconds is stale. Neither a connected broker nor a running web server
 means the trading worker is running.
+
+### Separate Upstox sandbox and live apps
+
+Apply `uv run alembic upgrade head` before using the updated login flow. Revision
+0004 preserves existing tokens as `live`, keys tokens by app/account/environment,
+and adds `sandbox_order_tests` and append-only `sandbox_test_events` for test
+requests and sanitized response states. Strategy records already separate paper
+and live runs by their mode. Sandbox probes use dedicated tables and never enter
+live strategy records. Downgrading 0004 is intentionally blocked to preserve
+credentials and test evidence.
+
+The existing `UPSTOX_API_KEY`, `UPSTOX_API_SECRET`, and `UPSTOX_REDIRECT_URI`
+configure the live app. Alternatively configure `UPSTOX_LIVE_API_KEY` and
+`UPSTOX_LIVE_API_SECRET` together, plus `UPSTOX_LIVE_REDIRECT_URI`. A partial new
+credential pair fails instead of mixing credentials from two apps.
+
+Configure the separate sandbox app using `UPSTOX_SANDBOX_API_KEY`.
+Sign into the website and use **Connect Upstox** for the live app. Live callbacks
+validate signed, expiring state bound to the browser cookie, exchange the code,
+and store the returned token in the live environment. Application access logs
+strip query strings from Upstox authentication routes.
+
+For the sandbox, use **Open sandbox app** to visit the dedicated
+[Sandbox Apps section](https://account.upstox.com/developer/apps#sandbox), open
+your app, and select **Generate** / **Generate access token**. The current
+Upstox frontend uses its developer-portal sandbox token endpoint rather than the
+live OAuth dialog; trying the sandbox app key at the live dialog returned
+`UDAPI100068` in interactive testing. The sandbox button opens the portal instead
+of attempting that unsupported flow. Save the generated token with the
+dashboard's password-style token field or:
+
+```bash
+uv run python -m app.cli.sandbox import-token
+uv run python -m app.cli.sandbox status
+```
+
+The CLI reads imported tokens through a hidden prompt. It never takes tokens in
+command-line arguments or stores them in `.env`. Set `UPSTOX_SANDBOX_USER_ID` to
+pin the sandbox account. Without it, CLI tests select the latest token for the
+sandbox app only; manual imports use the local identifier `sandbox`. Stored-token
+status does not imply broker verification. Changing the identifier selects a
+different token row.
+
+For an explicitly requested sandbox order probe:
+
+```bash
+uv run python -m app.cli.sandbox test-order \
+  --instrument 'NSE_EQ|INE002A01018' --quantity 1 --price 10 --tick-size 0.05
+```
+
+Verify the chosen instrument's actual tick size before testing. The probe sends
+one delivery LIMIT BUY and then requests cancellation using the official SDK's
+`Configuration(sandbox=True)`. It cannot switch to the live endpoint. Defaults
+limit it to one equity unit and INR 1,000 notional; configure
+`UPSTOX_SANDBOX_MAX_QUANTITY` and `UPSTOX_SANDBOX_MAX_NOTIONAL` separately from live
+strategy limits. It persists the request before submission, serializes probes
+per app/account, and disables mutation retries. Pending, uncertain and
+cancellation-acknowledged responses block further probes
+for that account until an operator has reconciled the sandbox outcome. Because
+current sandbox APIs cannot establish final order state, an acknowledgement does
+not automatically clear this block. After independently confirming the result
+through Upstox, an operator must explicitly reconcile the stored test record;
+there is no automatic reset or blind retry. Responses are
+recorded as acknowledgement states and validated order IDs; raw SDK errors,
+authorization headers, and secrets are never stored in the audit.
+
+`cancel_acknowledged` means Upstox accepted the cancellation request, not that a
+fill or final cancellation was confirmed. The SDK's current sandbox allowlist
+covers place/modify/cancel, but not profile, market data, positions, order books,
+or trades. Therefore full strategy execution still uses `ORB_MODE=paper` for
+simulated fills with live read-only market data, or explicitly enabled
+`ORB_MODE=live`. `ORB_MODE=sandbox` fails closed; use the sandbox probe for order
+integration tests. Live OAuth login and profile checks do not enable live orders.
+
+Opt-in MySQL integration checks use uniquely named fake fixtures, make no broker
+calls, and remove their records afterward:
+
+```bash
+ORB_MYSQL_TESTS=1 uv run python -m unittest tests.test_mysql_environments -v
+```

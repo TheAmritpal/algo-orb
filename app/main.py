@@ -4,9 +4,12 @@ from fastapi import FastAPI, Request
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
+from app.core.logging import install_access_filter
 from app.core.templating import APP_DIRECTORY
 from app.routers import auth, pages, upstox
 from app.services.auth import LoginRequired
+
+install_access_filter()
 
 app = FastAPI(title="Algo ORB", docs_url=None, redoc_url=None, openapi_url=None)
 
