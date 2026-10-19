@@ -6,7 +6,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.core.logging import install_access_filter
 from app.core.templating import APP_DIRECTORY
-from app.routers import auth, pages, upstox
+from app.routers import auth, pages, upstox, webhooks
 from app.services.auth import LoginRequired
 
 install_access_filter()
@@ -39,3 +39,5 @@ app.mount(
 app.include_router(auth.router)
 app.include_router(pages.router)
 app.include_router(upstox.router)
+
+app.include_router(webhooks.router)

@@ -506,3 +506,29 @@ calls, and remove their records afterward:
 ```bash
 ORB_MYSQL_TESTS=1 uv run python -m unittest tests.test_mysql_environments -v
 ```
+
+## Upstox order postbacks
+
+Apply `uv run alembic upgrade head` before enabling postbacks. Set the Upstox app's
+**Postback URL** to `https://<your-public-domain>/webhooks/upstox/orders` and enable
+**Order Update**. The same endpoint accepts **GTT Order Update** if enabled.
+Use a public HTTPS deployment; localhost is not reachable by Upstox. The OAuth
+redirect URL remains `/auth/upstox/callback`; the token notifier is separate.
+
+The endpoint accepts JSON POST requests without a website session, limits bodies
+to 64 KiB, and returns `200 {"status":"received"}` only after committing to
+`upstox_order_updates`. Equivalent sanitized payloads are deduplicated by a unique
+SHA-256 hash, independent of JSON key order. Malformed events return `400`,
+oversized requests `413`, unsupported content types `415`, and unavailable
+storage `503`. Acknowledgments do not guarantee that Upstox will retry failures.
+
+These are **unverified receipt records**, not authoritative order state. Upstox's
+published webhook contract supplies no signature verification mechanism. No
+webhook places orders, updates strategy execution state, or replaces the worker's
+broker API reconciliation. GTT payloads may omit account identity; do not infer
+ownership from receipt alone. Records contain allowlisted order fields and GTT
+rules; unknown fields and free-text broker messages are omitted to reduce secret
+exposure. Request bodies are not logged. Apply ingress rate limits and retention
+appropriate to your deployment for this public inbox.
+
+See the [official webhook contract](https://upstox.com/developer/api-documentation/webhook/).
