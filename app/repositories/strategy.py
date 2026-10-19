@@ -43,6 +43,7 @@ ALLOWED = {
     "target",
     "message",
     "entry_reserved",
+    "execution_backend",
 }
 
 

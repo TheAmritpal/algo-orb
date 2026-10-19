@@ -97,7 +97,7 @@ class RuleTests(unittest.TestCase):
         self.assertEqual(replace(contract(), lot_size=500).quantity, 1000)
 
     def test_premium_levels_and_time_exit_without_quote(self):
-        self.assertEqual(premium_levels(D(100), D("0.05")), (D(90), D(120)))
+        self.assertEqual(premium_levels(D(100), D("0.05")), (D(90), D(118)))
         for average in [D(10), D(9), D("NaN"), D("100.001")]:
             with self.assertRaises(ValueError):
                 premium_levels(average, D("0.05"))

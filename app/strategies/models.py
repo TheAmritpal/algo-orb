@@ -7,7 +7,7 @@ from typing import Literal
 
 Mode = Literal["paper", "live"]
 Direction = Literal["CE", "PE"]
-Purpose = Literal["entry", "stop", "exit"]
+Purpose = Literal["entry", "stop", "target", "exit"]
 TERMINAL = {"complete", "cancelled", "rejected"}
 
 
@@ -151,6 +151,7 @@ class StrategyRun:
     heartbeat: datetime | None = None
     message: str = ""
     entry_reserved: bool = False
+    execution_backend: str = "orders"
 
 
 @dataclass(frozen=True)

@@ -52,6 +52,8 @@ def get_strategy_status(*, now=None):
             message = "Broker outcome or remaining exposure needs reconciliation."
         if settings.mode == "live" and not settings.protective_stop_verified:
             message = "Protective-stop support must be verified before live entries. Existing exposure still requires management."
+        if run.execution_backend == "gtt":
+            message = "GTT execution: Upstox monitors exit triggers. " + message
         return StrategyStatus(run.state, settings.mode, alive, run, message)
     except Exception:  # noqa: BLE001 -- fail closed without leaking broker/SQL secrets
         return StrategyStatus(

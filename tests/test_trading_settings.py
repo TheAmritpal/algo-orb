@@ -12,6 +12,14 @@ class TradingSettingsTests(unittest.TestCase):
         ):
             return load_trading_settings()
 
+    def test_execution_backend(self):
+        self.assertEqual(self.settings().execution_backend, "gtt")
+        self.assertEqual(
+            self.settings(ORB_EXECUTION_BACKEND="orders").execution_backend, "orders"
+        )
+        with self.assertRaises(ValueError):
+            self.settings(ORB_EXECUTION_BACKEND="invalid")
+
     def test_default_is_paper_live_disabled(self):
         s = self.settings()
         self.assertEqual(s.mode, "paper")

@@ -91,3 +91,8 @@ class StatusTests(unittest.TestCase):
             b"120",
         ):
             self.assertIn(value, body)
+
+    def test_gtt_backend_visible_in_status(self):
+        self.run.execution_backend = "gtt"
+        result = self.status(self.run)
+        self.assertIn("GTT", result.message)

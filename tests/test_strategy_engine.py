@@ -18,7 +18,11 @@ class EngineTests(unittest.TestCase):
         self.lock = MagicMock(spec=["assert_owned"])
         self.broker = broker or PaperBroker(self.market.quote)
         self.engine = StrategyEngine(
-            TradingSettings(), self.repo, self.market, self.broker, self.lock
+            TradingSettings(execution_backend="orders"),
+            self.repo,
+            self.market,
+            self.broker,
+            self.lock,
         )
 
     def run_now(self, now=None):
@@ -44,7 +48,7 @@ class EngineTests(unittest.TestCase):
                     ("D", 500, direction),
                 )
                 self.assertEqual(
-                    (r.entry_average, r.stop, r.target), (D(100), D(90), D(120))
+                    (r.entry_average, r.stop, r.target), (D(100), D(90), D(118))
                 )
                 self.assertEqual(r.remaining_quantity, 500)
 
@@ -69,7 +73,11 @@ class EngineTests(unittest.TestCase):
         self.market.move(at(15, 26))
         self.broker = PaperBroker(self.market.quote)
         self.engine = StrategyEngine(
-            TradingSettings(), self.repo, self.market, self.broker, self.lock
+            TradingSettings(execution_backend="orders"),
+            self.repo,
+            self.market,
+            self.broker,
+            self.lock,
         )
         self.engine.stop_entries()
         for _ in range(3):
@@ -166,7 +174,11 @@ class EngineTests(unittest.TestCase):
         self.setup_engine()
         self.broker = Partial(self.market.quote)
         self.engine = StrategyEngine(
-            TradingSettings(), self.repo, self.market, self.broker, self.lock
+            TradingSettings(execution_backend="orders"),
+            self.repo,
+            self.market,
+            self.broker,
+            self.lock,
         )
         self.run_now()
         stops = [i for i in self.repo.intents.values() if i.purpose == "stop"]
@@ -230,3 +242,12 @@ class EngineTests(unittest.TestCase):
         self.run_now(at(15, 25))
         self.assertEqual(self.latest().state, "reconciliation_required")
         self.assertFalse(any(i.purpose == "exit" for i in self.repo.intents.values()))
+
+    def test_historical_recorded_levels_survive_recovery(self):
+        self.setup_engine()
+        self.run_now()
+        self.run_now()
+        run = self.latest()
+        self.repo.transition(run.id, run.version, "open", {"target": D(120)})
+        self.run_now()
+        self.assertEqual(self.latest().target, D(120))

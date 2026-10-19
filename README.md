@@ -259,23 +259,41 @@ expiry and units come from current Upstox metadata; two lots is not two units.
 The instrument is resolved by RELIANCE equity's ISIN key `NSE_EQ|INE002A01018`,
 and returned option metadata must identify that underlying and RELIANCE symbol.
 
-Entries use NRML (`product="D"`), a price-bounded LIMIT order, and one durable
-entry allowance per selected account, mode and exchange date. Rejected attempts
-consume that allowance. Partial entry fills are protected and unfilled remainder
-is cancelled after at most a 30-second observation window, subject to broker
-confirmation; no top-ups or re-entry. A stop fill, target hit, rejected protection
-or off-tick fill average cancels the pending remainder immediately before
-closing confirmed exposure. Old signals are not replayed after restart.
+Entries use NRML (`product="D"`) and one durable entry allowance per selected
+account, mode and exchange date. Rejected or uncertain attempts consume that
+allowance. No top-ups or re-entry; old signals are not replayed after restart.
 The last-entry cutoff is 15:00 IST. Holidays and special sessions are skipped.
 
-Stop and target refer to the actual option fill average: entry minus ₹10 and
-entry plus ₹20. This is a trigger policy, not a guaranteed realized loss cap.
-Live protection uses a broker-held stop-limit order. The worker monitors the
-target and initiates the time exit at 15:25 IST. It confirms stop cancellation
-and intervening fills before submitting a replacement sell. Limit/stop-limit
-orders may remain unfilled after gaps or during illiquidity. Exposure remains
-visible until fills confirm closure. NRML itself does not provide a broker
-intraday auto-square-off guarantee.
+`ORB_EXECUTION_BACKEND=gtt` (default) submits a multi-leg Upstox GTT after candle
+confirmation. ENTRY uses `IMMEDIATE` at the validated option ask; Upstox documents
+this as a limit entry, not a guaranteed market fill. TARGET and STOPLOSS rules
+are included with the entry. Both exit triggers are monitored by Upstox, removing
+our worker's polling delay from the normal exit trigger path. This does not
+remove exchange latency, slippage, gaps or the possibility of an unfilled order.
+Market protection is explicitly automatic (`-1`) for applicable GTT legs.
+
+Initial TP/SL are ask +18 / -10 premium points. Confirmed average entry fills
+set the final target to average +18 and stop to average -10, with modification
+read-back. Exact levels must fit the contract tick. The worker never submits a
+parallel local TP/SL while GTT exits remain active. An unfilled entry is cancelled
+after a 30-second observation window, subject to confirmed broker outcomes.
+Partial entries whose correctly sized protection cannot be verified are cancelled
+and reconciled, then a controlled exit of confirmed residual exposure is attempted.
+
+GTT parent IDs, generated exchange order IDs, unique trades and mutation intents
+are persisted separately. A successful create/cancel response is not evidence of
+fills or terminal cancellation. Lost creation acknowledgements require manual
+reconciliation and are never automatically retried. At 15:25 IST the running
+worker cancels GTT triggers and working generated orders, verifies their outcomes,
+then attempts to sell only residual exposure. If cancellation is uncertain it
+blocks duplicate sells and reports `reconciliation_required`. A running worker is
+still needed for the timed exit and recovery; GTT triggers may survive shutdown.
+NRML does not provide an intraday auto-square-off guarantee.
+
+`ORB_EXECUTION_BACKEND=orders` selects the existing ordinary limit-entry,
+broker stop-limit and application-monitored target path. New trades also use
++18/-10. Recovery uses the backend stored on the run, independent of the current
+setting. Existing ordinary-order runs retain their recorded levels.
 
 ### Settings and deployment
 
@@ -295,12 +313,19 @@ unbounded market order. Quote freshness defaults to 5 seconds and polling to
 2 seconds. Configuration must match available premium funds and selected lots.
 No real monetary limits have been selected or written to local credentials.
 
-`ORB_PROTECTIVE_STOP_VERIFIED=false` blocks live entries until acceptance of
-protective stop-limit orders has been established in a broker sandbox for the
-intended product. Mock tests verify SDK payloads, not broker/account eligibility.
-A broker can still reject protection after a fill; the worker then reconciles
-and attempts to close confirmed exposure. Do not set the flag based on tests
-alone. The implementation does not issue a live probe to establish eligibility.
+`ORB_PROTECTIVE_STOP_VERIFIED=false` blocks live entries until account/product
+protection support has been explicitly verified. Mock tests verify SDK requests,
+not broker eligibility. GTT is currently absent from Upstox's supported sandbox
+APIs and the official SDK rejects GTT in sandbox mode before HTTP submission.
+Paper GTT is deterministic simulation, not broker validation. Do not enable live
+trading merely because mocked tests pass. Development never submits live probes.
+
+Migration `0005` adds the stored backend, GTT parents, mutation intents and child
+order mappings. Apply it before running the updated worker or reading strategy
+status. It defaults historical runs to `orders`; GTT is selected when reserving a
+new configured entry. Runtime needs SELECT/INSERT/UPDATE on these new tables.
+Do not downgrade while a GTT run is unresolved, including zero-position runs
+whose exit triggers or exchange orders are still active.
 
 Migration revision `0003` adds strategy runs, intents, unique trade fills and
 sanitized events. Preview without a database connection:
