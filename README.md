@@ -5,6 +5,9 @@ official Upstox Python SDK. Uses Python 3.13 and uv.
 
 ## Setup
 
+For production Docker deployment with host-installed Nginx and MySQL, see
+[deploy/README.md](deploy/README.md).
+
 ```bash
 uv sync --frozen
 test -e .env || cp .env.example .env
