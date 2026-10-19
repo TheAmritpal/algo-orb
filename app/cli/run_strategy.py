@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from threading import Event
 
+import pymysql
 import upstox_client as sdk
 
 from app.core.trading import TradingSettings, load_trading_settings
@@ -26,9 +27,9 @@ logger = logging.getLogger(__name__)
 class Components:
     lock: WorkerLock
     engine: StrategyEngine
-    broker: object
+    broker: Broker | PaperBroker
     market: MarketData
-    client: object
+    client: sdk.ApiClient
 
 
 def build_components(settings: TradingSettings) -> Components:
@@ -150,7 +151,7 @@ def main() -> int:
         signal.signal(sig, lambda *_: stop.set())
     try:
         settings = load_trading_settings()
-    except (ValueError, ArithmeticError):
+    except (ValueError, ArithmeticError, OSError, RuntimeError, pymysql.MySQLError):
         logger.error("Invalid trading configuration")
         return 2
     return run_worker(settings, stop)

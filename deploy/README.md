@@ -100,7 +100,7 @@ and ensure any outer proxy/monitor also redacts callback query strings.
 ## Optional strategy worker
 
 Starting `web` does not start trading. For the 21 October paper session, confirm
-`ORB_MODE=paper` and `ORB_LIVE_ENABLED=false` in `.env.production`, reconnect
+Paper mode and disable live trading in the dashboard Trading settings, reconnect
 Upstox for a valid token, then explicitly start the worker before 09:15 IST:
 
 ```bash

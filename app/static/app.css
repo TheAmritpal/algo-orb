@@ -19,3 +19,8 @@
 .history-page table { width: 100%; border-collapse: collapse; text-align: left; font-size: .875rem; }
 .history-page caption { text-align: left; font-weight: 600; padding: .75rem 0; }
 .history-page th, .history-page td { padding: .75rem; border-bottom: 1px solid #dde6df; vertical-align: top; overflow-wrap: anywhere; }
+
+select{width:100%;min-height:46px;border:1px solid #cfdbd3;border-radius:8px;background:#fcfdfb;padding:11px 13px;margin-bottom:22px;font:inherit;color:#152a25}
+select:focus-visible{outline:3px solid #72b398;outline-offset:3px}
+.checkbox-label{display:flex;align-items:center;gap:12px}
+.checkbox-label input{width:20px;min-height:20px;height:20px;margin:0}

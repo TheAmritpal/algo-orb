@@ -300,7 +300,12 @@ setting. Existing ordinary-order runs retain their recorded levels.
 
 ### Settings and deployment
 
-`ORB_MODE=paper` and `ORB_LIVE_ENABLED=false` are the defaults. Set the pinned
+Execution mode and live enablement are stored in the MySQL `trading_config` table.
+Run `uv run alembic upgrade head`, then use **Trading settings** on the dashboard.
+The migration defaults to paper mode with live trading disabled. Changes apply
+on the next worker start; a running worker retains its current settings.
+Missing or unavailable database configuration blocks worker startup.
+`ORB_MODE` and `ORB_LIVE_ENABLED` environment variables are ignored. Set the pinned
 broker account using `ORB_BROKER_USER_ID`; this does not fall back to whichever
 account connected most recently. Paper execution uses real read-only quotes and
 deterministic simulated fills. Triggered stop-limit state survives gap rebounds
@@ -495,9 +500,9 @@ authorization headers, and secrets are never stored in the audit.
 `cancel_acknowledged` means Upstox accepted the cancellation request, not that a
 fill or final cancellation was confirmed. The SDK's current sandbox allowlist
 covers place/modify/cancel, but not profile, market data, positions, order books,
-or trades. Therefore full strategy execution still uses `ORB_MODE=paper` for
+or trades. Therefore full strategy execution still uses Paper mode for
 simulated fills with live read-only market data, or explicitly enabled
-`ORB_MODE=live`. `ORB_MODE=sandbox` fails closed; use the sandbox probe for order
+Live mode. Sandbox mode is unavailable in trading settings; use the sandbox probe for order
 integration tests. Live OAuth login and profile checks do not enable live orders.
 
 Opt-in MySQL integration checks use uniquely named fake fixtures, make no broker
