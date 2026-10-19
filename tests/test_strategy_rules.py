@@ -45,6 +45,36 @@ def contract(strike="1480", kind="CE", **kw):
 
 
 class RuleTests(unittest.TestCase):
+    def test_decisions_explain_signal_inside_range_stale_and_missing_candles(self):
+        from app.strategies import rules
+
+        self.assertTrue(
+            hasattr(rules, "evaluate_breakout"), "Candle decision audit is missing"
+        )
+        first = candle()
+        opening = build_range([first], at())
+        cases = [
+            ([first, candle(30, "1511")], at(), "signal", "CE"),
+            ([first, candle(30, "1489")], at(), "signal", "PE"),
+            ([first, candle(30, "1500")], at(), "no_signal", None),
+            ([first, candle(30, "1511")], at(9, 46, 1), "expired", "CE"),
+            (
+                [first, replace(candle(30, "1511"), start=at(10, 0))],
+                at(10, 15),
+                "invalid_data",
+                "CE",
+            ),
+        ]
+        for candles, now, outcome, direction in cases:
+            with self.subTest(outcome=outcome, direction=direction):
+                decision = rules.evaluate_breakout(candles, opening, now, None)
+                self.assertEqual(
+                    (decision.outcome, decision.direction), (outcome, direction)
+                )
+                self.assertEqual(
+                    (decision.opening_high, decision.opening_low), (D(1510), D(1490))
+                )
+
     def test_range_requires_completed_first_candle(self):
         self.assertIsNone(build_range([candle()], at(9, 29, 59)))
         r = build_range([candle()], at(9, 30))

@@ -53,6 +53,7 @@ def build_components(settings: TradingSettings) -> Components:
         profile = sdk_data(sdk.UserApi(client).get_profile, "2.0")
         if profile.user_id != settings.user_id:
             raise ValueError("Selected account does not match broker token")
+        live_broker.profile = profile
         market = MarketData(client)
         repo = StrategyRepository()
         lock = WorkerLock(settings.client_id, settings.user_id, settings.mode)

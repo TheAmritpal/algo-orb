@@ -9,26 +9,42 @@ from app.strategies.models import BrokerOrder, BrokerPosition, Fill
 from app.strategies.rules import premium_levels
 
 
+class EntryValidationError(ValueError):
+    def __init__(self, reason):
+        self.reason = reason
+        super().__init__(reason.replace("_", " "))
+
+
 def validate_entry(contract, quote, now, settings, funds):
     if quote.instrument_key != contract.instrument_key or not quote.fresh(
         now, settings.quote_max_age_seconds
     ):
-        raise ValueError("Entry quote unavailable or stale")
+        raise EntryValidationError("quote_unavailable_or_stale")
     premium_levels(quote.ask, contract.tick_size)
     if quote.ask % contract.tick_size or quote.bid % contract.tick_size:
-        raise ValueError("Invalid tick price")
+        raise EntryValidationError("invalid_tick_price")
     limits = settings.limits
     if settings.mode == "live" and (not settings.live_enabled or limits is None):
-        raise ValueError("Live entry disabled")
-    if limits and (
-        quote.ask > limits.max_premium
-        or quote.ask * contract.quantity > limits.max_notional
-        or 10 * contract.quantity > limits.max_planned_loss
-        or quote.ask - quote.bid > limits.max_spread
-    ):
-        raise ValueError("Configured entry limit exceeded")
+        raise EntryValidationError("live_entry_disabled")
+    if limits:
+        checks = (
+            (
+                limits.max_premium is not None and quote.ask > limits.max_premium,
+                "premium_limit",
+            ),
+            (
+                limits.max_notional is not None
+                and quote.ask * contract.quantity > limits.max_notional,
+                "notional_limit",
+            ),
+            (10 * contract.quantity > limits.max_planned_loss, "planned_loss_limit"),
+            (quote.ask - quote.bid > limits.max_spread, "spread_limit"),
+        )
+        for exceeded, reason in checks:
+            if exceeded:
+                raise EntryValidationError(reason)
     if funds < quote.ask * contract.quantity:
-        raise ValueError("Insufficient premium funds")
+        raise EntryValidationError("insufficient_funds")
     return quote.ask
 
 
@@ -48,6 +64,7 @@ class Broker:
         self.portfolio = sdk.PortfolioApi(client)
         self.user = sdk.UserApi(client)
         self.protective_stop_verified = protective_stop_verified
+        self.profile = None
 
     def submit(self, request):
         body = sdk.PlaceOrderRequest(
@@ -134,7 +151,15 @@ class Broker:
         return decimal(data["equity"].available_margin)
 
     def supports_protective_stop(self, contract):
-        return self.protective_stop_verified
+        profile = self.profile
+        return bool(
+            self.protective_stop_verified
+            and profile is not None
+            and getattr(profile, "is_active", False) is True
+            and "NFO" in (getattr(profile, "exchanges", None) or [])
+            and "D" in (getattr(profile, "products", None) or [])
+            and {"LIMIT", "SL"}.issubset(getattr(profile, "order_types", None) or [])
+        )
 
     def close(self):
         for cleanup in (

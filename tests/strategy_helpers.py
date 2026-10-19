@@ -11,6 +11,26 @@ class MemoryRepository:
         self.runs = {}
         self.intents = {}
         self.events = []
+        self.decisions = {}
+
+    def record_decision(self, run_id, decision, observed_at):
+        key = (run_id, decision.candle_close)
+        if key in self.decisions:
+            previous = self.decisions[key]
+            same = all(
+                getattr(previous, name) == getattr(decision, name)
+                for name in ("close_price", "opening_high", "opening_low", "direction")
+            )
+            if same and (
+                previous.outcome == decision.outcome
+                or (
+                    previous.outcome in {"signal", "no_signal"}
+                    and decision.outcome in {"expired", "processed", "cutoff"}
+                )
+            ):
+                return False
+        self.decisions[key] = deepcopy(decision)
+        return True
 
     def get_or_create(self, key):
         for r in self.runs.values():

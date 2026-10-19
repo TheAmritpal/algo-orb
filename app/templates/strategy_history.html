@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card dashboard history-page">
+  <header><a href="/">← Dashboard</a><h1>Signals and order history</h1></header>
+  <nav class="history-nav" aria-label="Execution mode">
+    <a href="?mode=paper" {% if history.mode == 'paper' %}aria-current="page"{% endif %}>Paper · simulated fills</a>
+    <a href="?mode=live" {% if history.mode == 'live' %}aria-current="page"{% endif %}>Live · real money</a>
+  </nav>
+  <p class="muted">Times are in IST. Decisions reflect candles observed by the worker. Past signals are not reconstructed, and a detected signal does not mean an order filled.</p>
+  {% if history.message %}<p role="status">{{ history.message }}</p>{% endif %}
+  {% if not history.runs %}<p>No recorded sessions.</p>{% endif %}
+  {% if history.runs %}
+  <div class="table-scroll" tabindex="0" role="region" aria-label="Strategy sessions">
+    <table><caption>Recorded sessions · {{ history.mode | title }}</caption>
+      <thead><tr><th scope="col">Session</th><th scope="col">State</th><th scope="col">Option</th><th scope="col">Filled / remaining</th><th scope="col">Entry average</th></tr></thead>
+      <tbody>{% for run in history.runs %}<tr>
+        <th scope="row"><a href="?mode={{ history.mode }}&amp;page={{ history.page }}&amp;run_id={{ run.id }}" {% if history.selected and history.selected.id == run.id %}aria-current="true"{% endif %}>{{ run.key.exchange_date }}</a></th>
+        <td>{{ run.state | replace('_', ' ') }}</td>
+        <td>{% if run.contract %}{{ run.contract.strike }} {{ run.contract.option_type }} · {{ run.contract.expiry }}{% else %}—{% endif %}</td>
+        <td>{{ run.filled_quantity }} / {{ run.remaining_quantity }}</td><td>{{ run.entry_average if run.entry_average is not none else '—' }}</td>
+      </tr>{% endfor %}</tbody>
+    </table>
+  </div>
+  {% endif %}
+  <nav class="history-nav" aria-label="Session pages">
+    {% if history.page > 1 %}<a href="?mode={{ history.mode }}&amp;page={{ history.page - 1 }}">Newer sessions</a>{% endif %}
+    {% if history.runs | length == 20 %}<a href="?mode={{ history.mode }}&amp;page={{ history.page + 1 }}">Older sessions</a>{% endif %}
+  </nav>
+  {% if history.selected %}
+  {% set run = history.selected %}
+  <h2>{{ run.key.exchange_date }} · {{ history.mode | title }}</h2>
+  <p>{{ run.message }}</p>
+  <p class="muted">{{ run.execution_backend | upper }} · Stop {{ run.stop if run.stop is not none else '—' }} / Target {{ run.target if run.target is not none else '—' }} · {{ 'Daily entry used' if run.entry_reserved else 'Daily entry unused' }}</p>
+  {% if history.gtt %}
+  {% set gtt = history.gtt %}
+  <h3>GTT parent</h3>
+  <dl class="strategy-grid">
+    <div><dt>Broker ID</dt><dd>{{ gtt.broker_id or 'Unconfirmed · creation needs reconciliation' }}</dd></div>
+    <div><dt>Request</dt><dd>{{ gtt.request.side }} {{ gtt.request.quantity }} @ {{ gtt.request.price }} · {{ gtt.request.instrument }}</dd></div>
+    <div><dt>Created (IST)</dt><dd>{{ gtt.created_at.astimezone(ist).strftime('%H:%M:%S') }}</dd></div>
+    <div><dt>Pending broker mutation</dt><dd>{{ gtt.pending.kind if gtt.pending else 'None recorded' }}</dd></div>
+    <div><dt>Recorded stop / target</dt><dd>{{ gtt.stop }} / {{ gtt.target }}</dd></div>
+  </dl>
+  {% if gtt.snapshot %}
+  <div class="table-scroll" tabindex="0" role="region" aria-label="Last observed GTT legs">
+    <table><caption>Last observed GTT legs</caption>
+      <thead><tr><th scope="col">Leg</th><th scope="col">Status</th><th scope="col">Price</th><th scope="col">Exchange order</th></tr></thead>
+      <tbody>{% for leg in gtt.snapshot.legs %}<tr><th scope="row">{{ leg.strategy }}</th><td>{{ leg.status }}</td><td>{{ leg.price }}</td><td>{{ leg.order_id or 'Not generated' }}</td></tr>{% endfor %}</tbody>
+    </table>
+  </div>
+  {% endif %}
+  {% endif %}
+  <div class="table-scroll" tabindex="0" role="region" aria-label="Candle decisions">
+    <table><caption>Candle decisions</caption>
+      <thead><tr><th scope="col">Candle close</th><th scope="col">Stock close</th><th scope="col">Opening high / low</th><th scope="col">Direction</th><th scope="col">Decision</th></tr></thead>
+      <tbody>{% for decision in history.decisions %}<tr>
+        <td>{{ decision.candle_close.astimezone(ist).strftime('%H:%M:%S') }}</td><td>{{ decision.close_price }}</td>
+        <td>{{ decision.opening_high }} / {{ decision.opening_low }}</td><td>{{ decision.direction or '—' }}</td><td>{{ decision.outcome | replace('_', ' ') }}</td>
+      </tr>{% else %}<tr><td colspan="5">No recorded candle decisions. Older sessions may predate signal tracking.</td></tr>{% endfor %}</tbody>
+    </table>
+  </div>
+  <div class="table-scroll" tabindex="0" role="region" aria-label="Order requests and fills">
+    <table><caption>Exchange orders and fills</caption>
+      <thead><tr><th scope="col">Time</th><th scope="col">Purpose</th><th scope="col">Order ID</th><th scope="col">Side / units</th><th scope="col">Limit / trigger</th><th scope="col">Status / fills</th></tr></thead>
+      <tbody>{% for order in history.orders %}<tr>
+        <td>{{ order.submitted_at.astimezone(ist).strftime('%H:%M:%S') }}</td><td>{{ order.purpose }}</td><td>{{ order.broker_id or 'Unconfirmed' }}</td>
+        <td>{{ order.request.side }} / {{ order.request.quantity }}</td><td>{{ order.request.price }} / {{ order.request.trigger_price }}</td>
+        <td>{{ order.status }}{% for fill in order.fills %}<br>{{ fill.quantity }} @ {{ fill.price }}{% endfor %}</td>
+      </tr>{% else %}<tr><td colspan="6">No exchange orders recorded.</td></tr>{% endfor %}</tbody>
+    </table>
+  </div>
+  <div class="table-scroll" tabindex="0" role="region" aria-label="Execution events">
+    <table><caption>Latest execution events</caption>
+      <thead><tr><th scope="col">Time</th><th scope="col">Event</th><th scope="col">Details</th></tr></thead>
+      <tbody>{% for event in history.events %}<tr>
+        <td>{{ event.created_at.astimezone(ist).strftime('%H:%M:%S') }}</td><td>{{ event.kind | replace('_', ' ') }}</td>
+        <td>{% for key, value in event.fields.items() %}{{ key | replace('_', ' ') }}: {{ value }}{% if not loop.last %}<br>{% endif %}{% endfor %}</td>
+      </tr>{% else %}<tr><td colspan="3">No execution events recorded.</td></tr>{% endfor %}</tbody>
+    </table>
+  </div>
+  {% endif %}
+</section>
+{% endblock %}
