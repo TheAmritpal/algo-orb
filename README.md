@@ -532,3 +532,44 @@ exposure. Request bodies are not logged. Apply ingress rate limits and retention
 appropriate to your deployment for this public inbox.
 
 See the [official webhook contract](https://upstox.com/developer/api-documentation/webhook/).
+
+## Disconnect and daily live-token retrieval
+
+The connected live-app panel provides **Disconnect Upstox**. Its authenticated,
+CSRF-protected POST revokes the selected account's token with the official SDK
+and conditionally removes that exact token from MySQL. Sandbox credentials and
+website sessions remain separate. A running paper/live strategy worker or an
+unresolved live strategy run blocks disconnection. Stop workers and resolve
+strategy exposure first. Disconnect does not cancel broker orders, GTTs, or
+close positions, including trades created outside this app. A failed or uncertain
+broker logout retains the saved token; a broker `401` permits removing an already
+invalid token. A replacement saved concurrently is preserved.
+
+Upstox's current [Get Token documentation](https://upstox.com/developer/api-documentation/get-token/)
+states that trading access tokens expire at **03:30 IST**, not midnight. The
+existing OAuth login remains manual; daily retrieval automation is not enabled
+by the disconnect feature. Current documented alternatives are:
+
+- **PIN + TOTP API for individual apps:** `POST /v2/totp-login/authorization/token`
+  takes the API key in `x-api-key` and the account's six-digit PIN and current
+  TOTP in JSON. TOTP must be enabled. The documentation states that issuance
+  revokes any existing active token. An unattended scheduled job would require
+  securely provisioned PIN and TOTP-generation material; keep these in environment
+  variables or a secret manager, never in templates, logs, Git, or chat. This is
+  a new-token flow, not a refresh-token grant. Confirm support in the official
+  SDK before implementation; the currently installed SDK exposes no TOTP method.
+- **[Access Token Request API](https://upstox.com/developer/api-documentation/access-token-request/):**
+  schedule the request before market hours, approve the Upstox notification, and
+  receive the resulting token at a separate notifier webhook. This removes the
+  browser callback/copying step but still requires daily human approval. The
+  existing order-postback endpoint does not receive or store notifier tokens.
+- **[Analytics Token](https://upstox.com/developer/api-documentation/analytics-token/):**
+  one-year validity for supported read-only APIs; cannot place or modify orders
+  and cannot replace the daily token for this strategy's live trading.
+
+For either daily-retrieval design, run before the strategy starts, validate the
+returned account with a broker profile request, persist the token atomically in
+`upstox_tokens`, and start the worker only after successful retrieval. The worker
+currently loads its token when it starts, so saving a new token does not update
+an already-running SDK client. Avoid repeated token issuance during trading and
+keep automation opt-in so disconnect is not immediately undone by a scheduler.

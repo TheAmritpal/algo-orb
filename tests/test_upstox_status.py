@@ -125,5 +125,8 @@ class UpstoxStatusTests(unittest.TestCase):
                 self.assertEqual(
                     b'href="/auth/upstox/login"' in body, state == "disconnected"
                 )
+                self.assertEqual(
+                    b'action="/auth/upstox/disconnect"' in body, state == "connected"
+                )
                 self.assertNotIn(b"private-token", body)
                 self.assertEqual(headers["cache-control"], "no-store")

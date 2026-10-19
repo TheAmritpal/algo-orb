@@ -20,7 +20,14 @@
       {% if upstox.user_id %}<p class="muted">Account: {{ upstox.user_id }}</p>{% endif %}
       <p class="muted">{{ upstox.message }}</p>
     </div>
-    {% if upstox.state == "disconnected" %}
+    {% if upstox.state == "connected" %}
+    <form action="/auth/upstox/disconnect" method="post">
+      <input type="hidden" name="csrf_token" value="{{ session.csrf_token }}">
+      <input type="hidden" name="user_id" value="{{ upstox.user_id }}">
+      <button type="submit" class="secondary">Disconnect Upstox</button>
+      <p class="muted">Revokes this connection. Open orders and positions remain at Upstox. Stop the strategy worker first.</p>
+    </form>
+    {% elif upstox.state == "disconnected" %}
     <a class="button" href="/auth/upstox/login">Connect Upstox <span aria-hidden="true">↗</span></a>
     {% endif %}
   </div>
