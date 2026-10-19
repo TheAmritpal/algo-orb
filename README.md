@@ -304,14 +304,20 @@ deterministic simulated fills. Triggered stop-limit state survives gap rebounds
 and restarts, and stale quotes cannot produce fills. It does not model queue priority, market impact,
 fees, or realistic partial fills. Paper/live run histories are separate.
 
-For any future live deployment, all five `ORB_MAX_*` amounts must be finite,
-positive rupee values. `PREMIUM` caps unit premium; `NOTIONAL` caps total entry
+For live deployment, all five `ORB_MAX_*` settings must be explicitly configured.
+Use finite positive rupee amounts, or the literal `none` for `PREMIUM` and
+`NOTIONAL` only to disable those two caps. Blank values remain unconfigured.
+`PREMIUM` caps unit premium; `NOTIONAL` caps total entry
 premium (`price × units`); `PLANNED_LOSS` caps the planned `₹10 × units` risk;
 `SPREAD` caps ask-minus-bid; `SLIPPAGE` bounds the sell-limit price below the
 observed bid and protective trigger. Buy limits use the quoted ask, not an
 unbounded market order. Quote freshness defaults to 5 seconds and polling to
 2 seconds. Configuration must match available premium funds and selected lots.
-No real monetary limits have been selected or written to local credentials.
+An uncapped premium or notional never bypasses the available-funds check.
+`PLANNED_LOSS` remains a required total-rupee cap; the premium stop is still
+10 points per unit. For a 500-unit lot, two lots plan ₹10,000 of stop loss before
+costs, gaps and execution losses. Lot metadata can change; a larger lot will
+fail this cap until it is explicitly reviewed.
 
 `ORB_PROTECTIVE_STOP_VERIFIED=false` blocks live entries until account/product
 protection support has been explicitly verified. Mock tests verify SDK requests,
@@ -319,6 +325,39 @@ not broker eligibility. GTT is currently absent from Upstox's supported sandbox
 APIs and the official SDK rejects GTT in sandbox mode before HTTP submission.
 Paper GTT is deterministic simulation, not broker validation. Do not enable live
 trading merely because mocked tests pass. Development never submits live probes.
+The live broker also checks its startup profile for active account status, NFO,
+delivery product D, LIMIT and SL permissions before reporting protection support.
+These profile checks do not verify GTT placement, trigger behavior or fills and
+do not automatically turn on the verification flag.
+
+### Signals and execution history
+
+Open `/strategy/history` from the dashboard while signed in. Paper and live
+sessions are shown separately for the configured app and pinned broker account,
+with 20 sessions per page. Selecting a session shows candle decisions, stock
+close and opening-range prices, CE/PE direction, contract-selection and blocked
+entry reasons, exchange requests and fills, GTT parent/leg observations, pending
+GTT mutations and the latest 100 execution events. Times are shown in IST.
+The page reads persisted data only and never starts a worker or calls a broker.
+
+Migration `0006` adds `strategy_signals` and a history index. The worker records
+each observed completed candle before entry validation. Identical observations
+are deduplicated; repaired or corrected data updates the decision and records a
+revision event. An originally valid decision is not overwritten merely because
+its signal window later expires. Detection does not imply entry or a confirmed
+fill. Existing history is preserved, and old signals are not backfilled or
+invented. No new records appear unless the separate worker runs.
+
+Run the opt-in MySQL tests after applying migrations:
+
+```bash
+ORB_MYSQL_TESTS=1 uv run python -m unittest discover -v
+```
+
+They create isolated test identities, never call live broker order APIs, and
+remove their own fixtures. They test token isolation, sandbox audit blocking,
+signal deduplication/revisions, account/mode scoping, GTT reservation and mutation
+recovery, generated-order mapping, and fill deduplication against real MySQL.
 
 Migration `0005` adds the stored backend, GTT parents, mutation intents and child
 order mappings. Apply it before running the updated worker or reading strategy

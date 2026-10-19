@@ -65,6 +65,17 @@ class Signal:
 
 
 @dataclass(frozen=True)
+class CandleDecision:
+    candle_start: datetime
+    candle_close: datetime
+    close_price: Decimal
+    opening_high: Decimal
+    opening_low: Decimal
+    direction: Direction | None
+    outcome: str
+
+
+@dataclass(frozen=True)
 class Contract:
     instrument_key: str
     underlying_key: str
@@ -232,8 +243,8 @@ class BrokerPosition:
 
 @dataclass(frozen=True)
 class EntryLimits:
-    max_premium: Decimal
-    max_notional: Decimal
+    max_premium: Decimal | None
+    max_notional: Decimal | None
     max_planned_loss: Decimal
     max_spread: Decimal
     max_slippage: Decimal

@@ -4,14 +4,18 @@ from datetime import time
 from decimal import Decimal
 from uuid import uuid4
 
-from app.services.trading_broker import bounded_sell, validate_entry
+from app.services.trading_broker import (
+    EntryValidationError,
+    bounded_sell,
+    validate_entry,
+)
 from app.services.trading_market import TradingUnavailable
-from app.strategies.models import TERMINAL, BrokerOrder, OrderRequest, RunKey
+from app.strategies.models import TERMINAL, BrokerOrder, OrderRequest, RunKey, Signal
 from app.strategies.rules import (
     IST,
     UNDERLYING,
-    breakout,
     build_range,
+    evaluate_breakout,
     exit_reason,
     premium_levels,
     select_contract,
@@ -353,6 +357,8 @@ class StrategyEngine:
             self._state(run, "skipped", message="Entry cutoff passed")
             return
         had_signal = False
+        block_reason = "market_data_unavailable"
+        signal = None
         try:
             snapshot = self.market.snapshot(now, None)
             if not snapshot.normal_session:
@@ -361,10 +367,16 @@ class StrategyEngine:
             if opening is None:
                 return
             run = self._state(run, "waiting_signal", opening=opening)
-            signal = breakout(snapshot.candles, opening, now, run.processed_candle)
-            if signal is None:
+            decision = evaluate_breakout(
+                snapshot.candles, opening, now, run.processed_candle
+            )
+            if decision is not None:
+                self.repository.record_decision(run.id, decision, now)
+            if decision is None or decision.outcome != "signal":
                 return
+            signal = Signal(decision.direction, decision.candle_close)
             had_signal = True
+            block_reason = "underlying_quote_unavailable"
             uq = snapshot.underlying_quote
             received_at = self.clock() if self.clock else now
             if (
@@ -373,6 +385,7 @@ class StrategyEngine:
                 or not uq.fresh(received_at, self.settings.quote_max_age_seconds)
             ):
                 raise ValueError("Underlying quote unavailable")
+            block_reason = "contract_unavailable"
             selected = select_contract(
                 snapshot.contracts, uq.last, signal.direction, key.exchange_date
             )
@@ -381,17 +394,44 @@ class StrategyEngine:
                 "waiting_signal",
                 contract=selected,
             )
+            self.repository.append_event(
+                run.id,
+                "contract_selected",
+                {
+                    "candle_close": signal.candle_close,
+                    "direction": signal.direction,
+                    "instrument": selected.instrument_key,
+                    "strike": selected.strike,
+                    "expiry": selected.expiry,
+                    "quantity": selected.quantity,
+                },
+            )
+            block_reason = "contract_already_held"
             if any(
                 p.instrument == selected.instrument_key and p.quantity
                 for p in self.broker.positions()
             ):
                 raise ValueError("Contract already held")
+            block_reason = "protection_unverified"
             if not self.broker.supports_protective_stop(selected):
                 raise ValueError("Protective stop capability not verified")
+            block_reason = "option_quote_unavailable"
             quote = self.market.quote(selected.instrument_key)
+            block_reason = "funds_unavailable"
             funds = self.broker.available_funds()
             received_at = self.clock() if self.clock else now
+            block_reason = "entry_validation_failed"
             price = validate_entry(selected, quote, received_at, self.settings, funds)
+            self.repository.append_event(
+                run.id,
+                "entry_validated",
+                {
+                    "candle_close": signal.candle_close,
+                    "quantity": selected.quantity,
+                    "price": price,
+                    "direction": signal.direction,
+                },
+            )
             run = self._state(
                 run, "waiting_signal", processed_candle=signal.candle_close
             )
@@ -406,6 +446,15 @@ class StrategyEngine:
             if current.entry_reserved:
                 self._fail(current, "Entry outcome uncertain; reconciliation required")
             elif not had_signal or isinstance(exc, TradingUnavailable):
+                if had_signal:
+                    self.repository.append_event(
+                        run.id,
+                        "entry_deferred",
+                        {
+                            "reason": block_reason,
+                            "candle_close": signal.candle_close,
+                        },
+                    )
                 self._state(
                     current, current.state, message="Waiting for fresh market data"
                 )
@@ -414,8 +463,22 @@ class StrategyEngine:
                     "Market data temporarily unavailable"
                 ) from None
             else:
+                reason = (
+                    exc.reason
+                    if isinstance(exc, EntryValidationError)
+                    else block_reason
+                )
+                self.repository.append_event(
+                    run.id,
+                    "entry_blocked",
+                    {
+                        "reason": reason,
+                        "candle_close": signal.candle_close,
+                        "direction": signal.direction,
+                    },
+                )
                 self._state(
                     current,
                     "skipped",
-                    message="Entry validation or market data unavailable",
+                    message="Entry blocked: " + reason.replace("_", " "),
                 )

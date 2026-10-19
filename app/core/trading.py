@@ -31,10 +31,17 @@ def load_trading_settings() -> TradingSettings:
         raise ValueError("Invalid trading mode")
     names = ("PREMIUM", "NOTIONAL", "PLANNED_LOSS", "SPREAD", "SLIPPAGE")
     values = []
+    configured = True
     for n in names:
-        raw = os.environ.get("ORB_MAX_" + n, "")
-        values.append(money(Decimal(raw)) if raw else None)
-    limits = EntryLimits(*values) if all(v is not None for v in values) else None
+        raw = os.environ.get("ORB_MAX_" + n, "").strip()
+        configured = configured and bool(raw)
+        if raw.lower() == "none":
+            if n not in {"PREMIUM", "NOTIONAL"}:
+                raise ValueError("Only premium and notional caps may be disabled")
+            values.append(None)
+        else:
+            values.append(money(Decimal(raw)) if raw else None)
+    limits = EntryLimits(*values) if configured else None
     user = os.environ.get("ORB_BROKER_USER_ID", "").strip()
     client = os.environ.get("UPSTOX_LIVE_API_KEY") or os.environ.get(
         "UPSTOX_API_KEY", "paper"

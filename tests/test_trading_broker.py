@@ -73,3 +73,38 @@ class BrokerTests(unittest.TestCase):
         ]:
             with self.assertRaises(ValueError):
                 validate_entry(contract(), quote, at(), s, funds)
+
+    def test_uncapped_spend_still_enforces_funds_spread_and_planned_loss(self):
+        settings = TradingSettings(
+            mode="live",
+            live_enabled=True,
+            limits=EntryLimits(None, None, D(5000), D(1), D(1)),
+        )
+        quote = Quote("option", at(), D(999), D(1000), D(1000))
+        self.assertEqual(
+            validate_entry(contract(), quote, at(), settings, D(500000)), D(1000)
+        )
+        cases = [
+            (contract(), quote, D(499999)),
+            (contract(), replace(quote, bid=D(998)), D(500000)),
+            (replace(contract(), lot_size=500), quote, D(1000000)),
+        ]
+        for selected, pricing, funds in cases:
+            with (
+                self.subTest(funds=funds, quantity=selected.quantity),
+                self.assertRaises(ValueError),
+            ):
+                validate_entry(selected, pricing, at(), settings, funds)
+
+    def test_protection_flag_alone_does_not_override_missing_account_permissions(self):
+        broker = Broker(self.client, orders=self.api, protective_stop_verified=True)
+        self.assertFalse(broker.supports_protective_stop(contract()))
+        broker.profile = N(
+            is_active=True,
+            exchanges=["NFO"],
+            products=["D"],
+            order_types=["LIMIT", "SL"],
+        )
+        self.assertTrue(broker.supports_protective_stop(contract()))
+        broker.profile.exchanges = ["NSE"]
+        self.assertFalse(broker.supports_protective_stop(contract()))

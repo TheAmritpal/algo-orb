@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 
 from app.strategies.models import (
     Candle,
+    CandleDecision,
     Contract,
     OpeningRange,
     Quote,
@@ -47,8 +48,15 @@ def build_range(candles: list[Candle], now: datetime) -> OpeningRange | None:
 def breakout(
     candles: list[Candle], opening: OpeningRange, now: datetime, after: datetime | None
 ) -> Signal | None:
-    if now.astimezone(IST).time() > time(15):
-        return None
+    decision = evaluate_breakout(candles, opening, now, after)
+    if decision and decision.outcome == "signal":
+        return Signal(decision.direction, decision.candle_close)
+    return None
+
+
+def evaluate_breakout(
+    candles: list[Candle], opening: OpeningRange, now: datetime, after: datetime | None
+) -> CandleDecision | None:
     cs = [
         c
         for c in session_candles(candles, now)
@@ -56,18 +64,26 @@ def breakout(
     ]
     if len(cs) < 2 or cs[0].start.astimezone(IST).time() != time(9, 15):
         return None
-    if any(
-        b.start - a.start != timedelta(minutes=15) for a, b in itertools.pairwise(cs)
-    ):
-        return None
     c = cs[-1]
     close = c.start + timedelta(minutes=15)
-    if not 0 <= (now - close).total_seconds() <= 60 or (after and close <= after):
-        return None
     direction = (
         "CE" if c.close > opening.high else "PE" if c.close < opening.low else None
     )
-    return Signal(direction, close) if direction else None
+    if now.astimezone(IST).time() > time(15):
+        outcome = "cutoff"
+    elif any(
+        b.start - a.start != timedelta(minutes=15) for a, b in itertools.pairwise(cs)
+    ):
+        outcome = "invalid_data"
+    elif not 0 <= (now - close).total_seconds() <= 60:
+        outcome = "expired"
+    elif after and close <= after:
+        outcome = "processed"
+    else:
+        outcome = "signal" if direction else "no_signal"
+    return CandleDecision(
+        c.start, close, c.close, opening.high, opening.low, direction, outcome
+    )
 
 
 def select_contract(

@@ -221,6 +221,112 @@ class StrategyRepository:
         with transaction() as c:
             return _intents(c, run_id)
 
+    def record_decision(self, run_id, decision, observed_at):
+        with transaction() as c:
+            c.execute(
+                "SELECT * FROM strategy_signals WHERE run_id=%s AND candle_close=%s FOR UPDATE",
+                (run_id, utc(decision.candle_close)),
+            )
+            previous = c.fetchone()
+            evidence = {
+                key: getattr(decision, key)
+                for key in ("close_price", "opening_high", "opening_low", "direction")
+            }
+            if previous:
+                same_evidence = all(
+                    previous[key] == value for key, value in evidence.items()
+                )
+                if same_evidence and (
+                    previous["outcome"] == decision.outcome
+                    or (
+                        previous["outcome"] in {"signal", "no_signal"}
+                        and decision.outcome in {"expired", "processed", "cutoff"}
+                    )
+                ):
+                    return False
+                self._event(
+                    c,
+                    run_id,
+                    "decision_revised",
+                    {
+                        "candle_close": decision.candle_close,
+                        "state": decision.outcome,
+                        "reason": previous["outcome"] + " -> " + decision.outcome,
+                        "previous_close": previous["close_price"],
+                        "previous_opening_high": previous["opening_high"],
+                        "previous_opening_low": previous["opening_low"],
+                        "direction": previous["direction"],
+                    },
+                )
+                c.execute(
+                    "UPDATE strategy_signals SET observed_at=%s,close_price=%s,opening_high=%s,opening_low=%s,direction=%s,outcome=%s WHERE id=%s",
+                    (
+                        utc(observed_at),
+                        decision.close_price,
+                        decision.opening_high,
+                        decision.opening_low,
+                        decision.direction,
+                        decision.outcome,
+                        previous["id"],
+                    ),
+                )
+                return True
+            c.execute(
+                "INSERT INTO strategy_signals (run_id,observed_at,candle_start,candle_close,close_price,opening_high,opening_low,direction,outcome) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                (
+                    run_id,
+                    utc(observed_at),
+                    utc(decision.candle_start),
+                    utc(decision.candle_close),
+                    decision.close_price,
+                    decision.opening_high,
+                    decision.opening_low,
+                    decision.direction,
+                    decision.outcome,
+                ),
+            )
+            return c.rowcount == 1
+
+    def history_runs(self, client_id, user_id, mode, *, page=1):
+        if mode not in {"paper", "live"} or not 1 <= page <= 10000:
+            raise ValueError("Invalid history selection")
+        with transaction() as c:
+            c.execute(
+                "SELECT * FROM strategy_runs WHERE client_id=%s AND user_id=%s AND mode=%s ORDER BY exchange_date DESC,id DESC LIMIT 20 OFFSET %s",
+                (client_id, user_id, mode, (page - 1) * 20),
+            )
+            return [run_from_row(row) for row in c.fetchall()]
+
+    def history_details(self, run_id):
+        # Call only after selecting a run from the account-scoped history page.
+        with transaction() as c:
+            c.execute(
+                "SELECT * FROM strategy_signals WHERE run_id=%s ORDER BY candle_close DESC LIMIT 30",
+                (run_id,),
+            )
+            decisions = [
+                dict(
+                    row,
+                    **{
+                        key: aware(row[key])
+                        for key in ("candle_start", "candle_close", "observed_at")
+                    },
+                )
+                for row in c.fetchall()
+            ]
+            orders = _intents(c, run_id)
+            c.execute(
+                "SELECT created_at,kind,fields FROM strategy_events WHERE run_id=%s ORDER BY id DESC LIMIT 100",
+                (run_id,),
+            )
+            events = [
+                dict(
+                    row, created_at=aware(row["created_at"]), fields=load(row["fields"])
+                )
+                for row in c.fetchall()
+            ]
+            return decisions, orders, events
+
     def list_unresolved(self, client_id, user_id, mode):
         with transaction() as c:
             c.execute(
@@ -245,10 +351,18 @@ class StrategyRepository:
             run = _read(c, run_id, True)
             if run.version != expected_version:
                 raise RuntimeError("Stale strategy state")
+            changed = (
+                run.state != state or changes.get("message", run.message) != run.message
+            )
             for k, v in changes.items():
                 setattr(run, k, v)
             run.state = state
-            return _save(c, run, expected_version)
+            result = _save(c, run, expected_version)
+            if changed:
+                self._event(
+                    c, run.id, "state_changed", {"state": state, "reason": run.message}
+                )
+            return result
 
     def heartbeat(self, run_id, now):
         with transaction() as c:
@@ -371,7 +485,23 @@ class StrategyRepository:
             return run
 
     def _event(self, c, run_id, kind, fields):
-        allowed = {"order_id", "status", "filled_quantity", "reason", "state"}
+        allowed = {
+            "order_id",
+            "status",
+            "filled_quantity",
+            "reason",
+            "state",
+            "candle_close",
+            "direction",
+            "instrument",
+            "strike",
+            "expiry",
+            "quantity",
+            "price",
+            "previous_close",
+            "previous_opening_high",
+            "previous_opening_low",
+        }
         fields = {k: v for k, v in fields.items() if k in allowed}
         c.execute(
             "INSERT INTO strategy_events (run_id,created_at,kind,fields) VALUES (%s,%s,%s,%s)",

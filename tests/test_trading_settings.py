@@ -55,3 +55,23 @@ class TradingSettingsTests(unittest.TestCase):
         ]:
             with self.subTest(env=env), self.assertRaises(ValueError):
                 self.settings(**env)
+
+    def test_explicit_uncapped_spend_preserves_required_risk_limits(self):
+        values = {
+            "ORB_MODE": "live",
+            "ORB_LIVE_ENABLED": "true",
+            "ORB_BROKER_USER_ID": "u",
+            "ORB_MAX_PREMIUM": "none",
+            "ORB_MAX_NOTIONAL": "none",
+            "ORB_MAX_PLANNED_LOSS": "10000",
+            "ORB_MAX_SPREAD": "1",
+            "ORB_MAX_SLIPPAGE": "1",
+        }
+        settings = self.settings(**values)
+        self.assertIsNone(settings.limits.max_premium)
+        self.assertIsNone(settings.limits.max_notional)
+        for key in ("ORB_MAX_PLANNED_LOSS", "ORB_MAX_SPREAD", "ORB_MAX_SLIPPAGE"):
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                self.settings(**{**values, key: "none"})
+        with self.assertRaises(ValueError):
+            self.settings(**{**values, "ORB_MAX_PREMIUM": ""})

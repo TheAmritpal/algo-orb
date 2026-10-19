@@ -12,6 +12,31 @@ from tests.test_strategy_rules import at
 
 
 class EngineTests(unittest.TestCase):
+    def test_signal_is_audited_before_failed_protection_and_blocks_order(self):
+        self.setup_engine("PE")
+        self.broker.supports_protective_stop = lambda c: False
+        self.run_now()
+        self.assertTrue(
+            getattr(self.repo, "decisions", {}), "Signal decision was not saved"
+        )
+        decision = next(iter(self.repo.decisions.values()))
+        self.assertEqual((decision.direction, decision.outcome), ("PE", "signal"))
+        blocked = [e for e in self.repo.events if e[1] == "entry_blocked"]
+        self.assertEqual(blocked[-1][2]["reason"], "protection_unverified")
+        self.assertFalse(self.repo.intents)
+
+    def test_repeated_non_signal_candle_has_one_audit_record(self):
+        from tests.test_strategy_rules import candle
+
+        self.setup_engine()
+        self.market.candles = [candle(), candle(30, "1500")]
+        self.run_now()
+        self.run_now()
+        self.assertEqual(len(getattr(self.repo, "decisions", {})), 1)
+        decision = next(iter(self.repo.decisions.values()))
+        self.assertEqual(decision.outcome, "no_signal")
+        self.assertFalse(self.repo.intents)
+
     def setup_engine(self, direction="CE", broker=None):
         self.repo = MemoryRepository()
         self.market = FakeMarket(direction)
