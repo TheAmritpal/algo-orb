@@ -51,7 +51,7 @@ docker compose build web
 # One-off commands do not start the HTTP server or strategy worker.
 docker compose run --rm --no-deps web alembic upgrade head
 docker compose run --rm --no-deps web python -m app.cli.sync_admin
-docker compose up -d web
+docker compose up -d web token-scheduler
 curl --fail http://127.0.0.1:3000/health
 docker compose ps
 ```
@@ -128,7 +128,7 @@ execution. Never start a second worker during unresolved exposure.
 ```bash
 docker compose build web
 docker compose run --rm --no-deps web alembic upgrade head
-docker compose up -d --no-deps web
+docker compose up -d --no-deps web token-scheduler
 ```
 
 Existing worker containers continue using their original image and environment;
@@ -137,3 +137,58 @@ Changes to `.env.production` require container recreation, not just restart.
 Avoid `docker compose config` without `--quiet` or `--no-env-resolution` in logs:
 resolved output contains credentials. Application source is copied into the
 image; no source or secret file is bind-mounted at runtime.
+
+
+## Optional daily PIN/TOTP token retrieval
+
+Fill `UPSTOX_TOTP_SECRET` (Base32 enrolment key), `UPSTOX_TOTP_PIN`, the live API
+key and `ORB_BROKER_USER_ID` in the private `.env.production`. Never paste these
+values into cron entries, shell arguments, or logs. Rebuild the image after
+adding this command, then run an intentional initial connection:
+
+```bash
+docker compose run --rm --no-deps web python -m app.cli.upstox_token --connect
+```
+
+Compose includes a `token-scheduler` service. It renews saved connections at
+**08:30 IST Monday–Friday**, regardless of the host timezone. If started late,
+it catches up during 08:30–15:30 IST. After 15:30 it waits for the next weekday.
+Exchange holidays are not excluded; this service only retrieves credentials.
+
+Build and start the web application and scheduler:
+
+```bash
+docker compose up -d --build web token-scheduler
+docker compose logs --tail 50 token-scheduler
+```
+
+Compose reads `.env.production` by default. Put the TOTP values in that file,
+or deliberately select a different private file with `ORB_ENV_FILE`. Editing the
+local `.env` alone does not update production containers. Recreate the scheduler
+after changing credentials; an existing container retains its original environment.
+
+No host cron entry is needed. Disable any previously installed renewal cron job
+to avoid duplicate scheduling. The scheduler attempts once per IST date while
+running, including failed or disconnected attempts. It does not retry uncertain
+issuance automatically that day. Restarting it inside the window runs another
+check; a valid saved token is reused rather than rotated. Do not repeatedly restart
+it after failures. Monitor its logs and resolve failures before starting a worker.
+
+The service never uses `--connect`: intentional first connection or reconnection
+still uses the command above. A UI disconnect therefore remains disconnected.
+It refuses renewal while either strategy worker mode is running, and does not
+stop workers, cancel orders, or start trading. If a worker is left running
+overnight, renewal will fail rather than interrupt its use of the token.
+
+To disable only automatic token renewal:
+
+```bash
+docker compose stop token-scheduler
+```
+
+Start the strategy separately only after the dashboard confirms the expected
+account is connected. Do not stop a live worker solely to refresh a token while
+it is managing exposure. If an expired token prevents recovery of unresolved
+exposure, retrieve the fresh token with workers stopped, then explicitly restart
+the worker for reconciliation. This command can retrieve credentials in that
+situation; it does not clear or alter strategy exposure.

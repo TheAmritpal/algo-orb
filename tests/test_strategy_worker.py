@@ -9,10 +9,24 @@ from tests.test_strategy_rules import at
 
 
 class WorkerTests(unittest.TestCase):
+    def setUp(self):
+        lookup = patch(
+            "app.cli.run_strategy.get_token",
+            return_value=N(access_token="startup-token"),
+        )
+        self.lookup = lookup.start()
+        self.addCleanup(lookup.stop)
+
     def components(self, acquired=True):
         lock = MagicMock(spec=["acquire", "assert_owned", "close"])
         lock.acquire.return_value = acquired
-        return N(lock=lock, engine=MagicMock(), broker=MagicMock(), market=MagicMock())
+        return N(
+            lock=lock,
+            engine=MagicMock(),
+            broker=MagicMock(),
+            market=MagicMock(),
+            client=MagicMock(configuration=N(access_token="startup-token")),
+        )
 
     def test_duplicate_worker_refuses_before_engine_start(self):
         c = self.components(False)
@@ -20,6 +34,16 @@ class WorkerTests(unittest.TestCase):
             self.assertEqual(run_worker(TradingSettings(), Event()), 2)
         c.engine.tick.assert_not_called()
         c.lock.close.assert_called_once()
+
+    def test_token_changed_during_startup_refuses_before_recovery(self):
+        c = self.components()
+        self.lookup.return_value = N(access_token="replacement-token")
+        stop = Event()
+        stop.set()
+        with patch("app.cli.run_strategy.build_components", return_value=c):
+            self.assertEqual(run_worker(TradingSettings(), stop), 2)
+        c.engine.recover.assert_not_called()
+        c.engine.tick.assert_not_called()
 
     def test_backoff_bounded_and_shutdown_disables_only_entries(self):
         c = self.components()

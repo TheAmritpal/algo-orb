@@ -547,8 +547,8 @@ invalid token. A replacement saved concurrently is preserved.
 
 Upstox's current [Get Token documentation](https://upstox.com/developer/api-documentation/get-token/)
 states that trading access tokens expire at **03:30 IST**, not midnight. The
-existing OAuth login remains manual; daily retrieval automation is not enabled
-by the disconnect feature. Current documented alternatives are:
+existing OAuth login remains available; Compose now includes a separate
+weekday PIN/TOTP renewal service. Current documented alternatives are:
 
 - **PIN + TOTP API for individual apps:** `POST /v2/totp-login/authorization/token`
   takes the API key in `x-api-key` and the account's six-digit PIN and current
@@ -557,7 +557,8 @@ by the disconnect feature. Current documented alternatives are:
   securely provisioned PIN and TOTP-generation material; keep these in environment
   variables or a secret manager, never in templates, logs, Git, or chat. This is
   a new-token flow, not a refresh-token grant. Confirm support in the official
-  SDK before implementation; the currently installed SDK exposes no TOTP method.
+  SDK: this app uses its generic API client because the installed SDK exposes
+  no named TOTP method.
 - **[Access Token Request API](https://upstox.com/developer/api-documentation/access-token-request/):**
   schedule the request before market hours, approve the Upstox notification, and
   receive the resulting token at a separate notifier webhook. This removes the
@@ -573,3 +574,50 @@ returned account with a broker profile request, persist the token atomically in
 currently loads its token when it starts, so saving a new token does not update
 an already-running SDK client. Avoid repeated token issuance during trading and
 keep automation opt-in so disconnect is not immediately undone by a scheduler.
+
+
+## PIN/TOTP token command
+
+Enable TOTP in Upstox and put the **Base32 setup secret** in
+`UPSTOX_TOTP_SECRET` and your six-digit PIN in `UPSTOX_TOTP_PIN`. A current
+six-digit authenticator code is not the setup secret. Keep these only in your
+private `.env` (or production secret environment), never in Git or chat.
+Set `ORB_BROKER_USER_ID` to the exact Upstox account and configure the live API key
+using `UPSTOX_API_KEY` or `UPSTOX_LIVE_API_KEY`. This command does not require an
+OAuth API secret. Keep the host clock synchronized for 30-second TOTP codes.
+
+Intentional first connection (or reconnection after Disconnect):
+
+```bash
+uv run python -m app.cli.upstox_token --connect
+```
+
+Daily renewal of a saved connection, before starting the strategy worker:
+
+```bash
+uv run python -m app.cli.upstox_token
+```
+
+A valid saved token is reused without issuing another. Only a confirmed broker
+`401` permits replacing a saved token; temporary failures do not trigger rotation.
+If no token is saved, the default command skips rather than undoing an intentional
+disconnect. `--connect` explicitly allows initial connection. Both modes refuse
+while a paper or live worker holds its account lock. The command verifies the
+new account through the profile API and commits to `upstox_tokens`; it never
+starts a worker, places orders, or prints credentials. Exit code 0 means saved,
+already valid, or disconnected/skipped; exit code 2 means failure. Treat a skipped
+renewal as disconnected, not permission to trade.
+
+Issuance can revoke the old token even if the response, verification, or MySQL
+commit subsequently fails. There are no automatic retries. On failure, inspect
+configuration and broker connectivity before rerunning. SDK response-body debug
+logs are redacted. Broker tests use mocks; no real token was issued during tests.
+No schema migration or new dependency is required for this command.
+
+Compose includes `token-scheduler` for automatic weekday renewal at **08:30 IST**
+(with late-start catch-up until 15:30 IST). It uses the default renewal command,
+so disconnected accounts stay disconnected. Failures are logged without an
+automatic retry that day while the process remains running. It does not start
+trading. Start it with `docker compose up -d --build web token-scheduler`.
+Compose uses `.env.production` by default, so configure the TOTP values there
+for production. See [deploy/README.md](deploy/README.md) for setup and monitoring.

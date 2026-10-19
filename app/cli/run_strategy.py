@@ -92,6 +92,17 @@ def run_worker(settings: TradingSettings, stop: Event, *, clock=None) -> int:
             logger.error("Strategy worker is already running for this account and mode")
             return 2
         components.lock.assert_owned()
+        # A renewal or disconnect may have completed between component creation
+        # and lock acquisition. Never recover or submit with stale credentials.
+        current_token = get_token(settings.client_id, settings.user_id)
+        if (
+            current_token is None
+            or current_token.access_token
+            != components.client.configuration.access_token
+        ):
+            raise ValueError(
+                "Broker credentials changed during startup; restart the worker"
+            )
         components.engine.recover(clock())
         delay = settings.poll_seconds
         while not stop.is_set():

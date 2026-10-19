@@ -1,4 +1,4 @@
-"""Keep OAuth authorization codes out of Uvicorn access logs."""
+"""Redact OAuth codes and SDK response bodies that may contain tokens."""
 
 import logging
 
@@ -13,7 +13,20 @@ class OAuthAccessFilter(logging.Filter):
         return True
 
 
+class BrokerResponseFilter(logging.Filter):
+    def filter(self, record):
+        if isinstance(record.msg, str) and record.msg.startswith("response body:"):
+            record.msg = "response body: [redacted]"
+            record.args = ()
+        return True
+
+
 def install_access_filter():
     logger = logging.getLogger("uvicorn.access")
     if not any(isinstance(item, OAuthAccessFilter) for item in logger.filters):
         logger.addFilter(OAuthAccessFilter())
+    broker_logger = logging.getLogger("upstox_client.rest")
+    if not any(
+        isinstance(item, BrokerResponseFilter) for item in broker_logger.filters
+    ):
+        broker_logger.addFilter(BrokerResponseFilter())
