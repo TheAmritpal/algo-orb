@@ -78,3 +78,25 @@ def get_token(
             return UpstoxToken(*row) if row else None
     finally:
         connection.close()
+
+
+def delete_token(
+    client_id: str, user_id: str, access_token: str, *, environment: str = "live"
+) -> None:
+    """Remove only the revoked token; preserve any concurrently saved replacement."""
+    validate_environment(environment)
+    connection = get_connection()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """DELETE FROM upstox_tokens
+                   WHERE client_id=%s AND user_id=%s AND environment=%s
+                   AND BINARY access_token = BINARY %s""",
+                (client_id, user_id, environment, access_token),
+            )
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()

@@ -71,3 +71,34 @@ def sandbox_login():
         status_code=303,
         headers=upstox.PRIVATE_HEADERS,
     )
+
+
+@router.post("/disconnect")
+async def disconnect(
+    request: Request, session: Annotated[Session, Depends(require_session)]
+):
+    import hmac
+
+    from fastapi import HTTPException
+    from fastapi.responses import RedirectResponse
+    from starlette.concurrency import run_in_threadpool
+
+    from app.routers.auth import bounded_form
+    from app.services import upstox_disconnect
+
+    form = await bounded_form(request, {"csrf_token", "user_id"})
+    if not hmac.compare_digest(
+        form["csrf_token"].encode(), session.csrf_token.encode()
+    ):
+        raise HTTPException(403, "Invalid form submission")
+    user_id = form["user_id"]
+    if (
+        not 1 <= len(user_id) <= 100
+        or not user_id.isascii()
+        or any(c.isspace() for c in user_id)
+    ):
+        raise HTTPException(400, "Invalid Upstox account")
+    await run_in_threadpool(upstox_disconnect.disconnect, user_id)
+    response = RedirectResponse("/", status_code=303, headers=upstox.PRIVATE_HEADERS)
+    response.delete_cookie(upstox.COOKIE, path=upstox.COOKIE_PATH)
+    return response
