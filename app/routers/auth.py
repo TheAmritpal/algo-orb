@@ -47,7 +47,9 @@ def login_page(request: Request, error: str = "", status_code: int = 200):
     return response
 
 
-async def bounded_form(request: Request, expected: set[str]) -> dict[str, str]:
+async def bounded_form(
+    request: Request, expected: set[str], *, optional: frozenset[str] = frozenset()
+) -> dict[str, str]:
     if (
         request.headers.get("content-type", "").split(";", 1)[0].lower()
         != "application/x-www-form-urlencoded"
@@ -71,7 +73,11 @@ async def bounded_form(request: Request, expected: set[str]) -> dict[str, str]:
             max_num_fields=8,
         )
         form = dict(pairs)
-        if len(form) != len(pairs) or set(form) != expected:
+        if (
+            len(form) != len(pairs)
+            or not expected <= set(form)
+            or set(form) - expected - optional
+        ):
             raise ValueError("Invalid fields")
         return form
     except (ValueError, UnicodeError):

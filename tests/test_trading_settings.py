@@ -1,4 +1,5 @@
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from app.core.trading import load_trading_settings
@@ -6,9 +7,18 @@ from app.core.trading import load_trading_settings
 
 class TradingSettingsTests(unittest.TestCase):
     def settings(self, **env):
+        mode = env.pop("ORB_MODE", "paper")
+        enabled = env.pop("ORB_LIVE_ENABLED", "false")
         with (
             patch.dict("os.environ", env, clear=True),
             patch("app.core.trading.load_dotenv"),
+            patch(
+                "app.core.trading.get_trading_config",
+                return_value=SimpleNamespace(
+                    mode=mode,
+                    live_enabled={"true": True, "false": False}.get(enabled, enabled),
+                ),
+            ),
         ):
             return load_trading_settings()
 
@@ -75,3 +85,20 @@ class TradingSettingsTests(unittest.TestCase):
                 self.settings(**{**values, key: "none"})
         with self.assertRaises(ValueError):
             self.settings(**{**values, "ORB_MAX_PREMIUM": ""})
+
+    def test_environment_cannot_override_database_mode(self):
+        with (
+            patch.dict(
+                "os.environ",
+                {"ORB_MODE": "live", "ORB_LIVE_ENABLED": "true"},
+                clear=True,
+            ),
+            patch("app.core.trading.load_dotenv"),
+            patch(
+                "app.core.trading.get_trading_config",
+                return_value=SimpleNamespace(mode="paper", live_enabled=False),
+            ),
+        ):
+            result = load_trading_settings()
+        self.assertEqual(result.mode, "paper")
+        self.assertFalse(result.live_enabled)

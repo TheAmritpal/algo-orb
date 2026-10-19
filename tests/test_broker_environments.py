@@ -13,16 +13,19 @@ class EnvironmentTests(unittest.TestCase):
     def test_live_prefixed_credentials_are_used_together(self):
         from app.core.config import get_upstox_config
 
-        with patch.dict(
-            os.environ,
-            {
-                "UPSTOX_LIVE_API_KEY": "live-key",
-                "UPSTOX_LIVE_API_SECRET": "live-secret",
-                "UPSTOX_API_KEY": "old-key",
-                "UPSTOX_API_SECRET": "old-secret",
-            },
-            clear=True,
-        ), patch("app.core.config.load_dotenv"):
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "UPSTOX_LIVE_API_KEY": "live-key",
+                    "UPSTOX_LIVE_API_SECRET": "live-secret",
+                    "UPSTOX_API_KEY": "old-key",
+                    "UPSTOX_API_SECRET": "old-secret",
+                },
+                clear=True,
+            ),
+            patch("app.core.config.load_dotenv"),
+        ):
             self.assertEqual(get_upstox_config()["client_id"], "live-key")
 
     def test_sandbox_token_is_isolated_even_for_same_app_and_user(self):
@@ -59,10 +62,12 @@ class EnvironmentTests(unittest.TestCase):
 
     def test_live_worker_uses_prefixed_app_key(self):
         from app.core.trading import load_trading_settings
+        from app.repositories.trading_config import TradingConfig
 
         with (
             patch.dict(os.environ, {"UPSTOX_LIVE_API_KEY": "live-key"}, clear=True),
             patch("app.core.trading.load_dotenv"),
+            patch("app.core.trading.get_trading_config", return_value=TradingConfig()),
         ):
             self.assertEqual(load_trading_settings().client_id, "live-key")
 
@@ -242,7 +247,8 @@ class SandboxCliTests(unittest.TestCase):
                 },
                 clear=True,
             ),
-            patch("app.core.config.load_dotenv"),self.assertRaises(ValueError)
+            patch("app.core.config.load_dotenv"),
+            self.assertRaises(ValueError),
         ):
             get_upstox_config()
 
@@ -370,9 +376,12 @@ class SandboxSafetyTests(unittest.TestCase):
         connection = MagicMock()
         cursor = connection.cursor.return_value.__enter__.return_value
         cursor.fetchone.return_value = (9,)
-        with patch(
-            "app.repositories.sandbox_tests.get_connection", return_value=connection
-        ), self.assertRaises(RuntimeError):
+        with (
+            patch(
+                "app.repositories.sandbox_tests.get_connection", return_value=connection
+            ),
+            self.assertRaises(RuntimeError),
+        ):
             SandboxTestRepository().start("app", "user", {"tag": "test"})
         self.assertEqual(cursor.execute.call_count, 1)
         connection.commit.assert_not_called()

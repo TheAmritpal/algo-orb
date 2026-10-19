@@ -47,6 +47,29 @@
       <p class="muted">Saving a token does not place orders or start the strategy. The sandbox order test runs separately; full strategy simulation uses Paper mode.</p>
     </div>
   </section>
+  <section class="strategy-panel" aria-labelledby="config-heading">
+    <h2 id="config-heading">Trading settings</h2>
+    {% if config_saved %}<p role="status">Settings saved. Changes apply on the next worker start.</p>{% endif %}
+    {% if trading_config %}
+    <p class="muted">Saved mode: {{ trading_config.mode | title }} · Live trading {{ 'enabled' if trading_config.live_enabled else 'disabled' }}.</p>
+    <form action="/strategy/config" method="post">
+      <input type="hidden" name="csrf_token" value="{{ session.csrf_token }}">
+      <label for="trading-mode">Execution mode</label>
+      <select id="trading-mode" name="mode" aria-describedby="config-help">
+        <option value="paper" {{ 'selected' if trading_config.mode == 'paper' else '' }}>Paper · simulated orders</option>
+        <option value="live" {{ 'selected' if trading_config.mode == 'live' else '' }}>Live · real money</option>
+      </select>
+      <label for="live-enabled" class="checkbox-label">
+        <input id="live-enabled" name="live_enabled" value="true" type="checkbox" {{ 'checked' if trading_config.live_enabled else '' }}>
+        Enable live trading with real money
+      </label>
+      <p id="config-help" class="muted">Changes apply on the next worker start. A running worker keeps its current settings. Saving does not start trading. Live mode also requires the configured broker account and risk limits.</p>
+      <button type="submit">Save trading settings</button>
+    </form>
+    {% else %}
+    <p role="status">Trading settings unavailable. Check database access and migrations.</p>
+    {% endif %}
+  </section>
   <section class="strategy-panel" aria-labelledby="strategy-heading">
     <div class="strategy-heading">
       <div><p class="eyebrow">OPENING RANGE BREAKOUT</p><h2 id="strategy-heading">RELIANCE</h2></div>

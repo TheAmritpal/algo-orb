@@ -7,6 +7,7 @@ from decimal import Decimal
 from dotenv import load_dotenv
 
 from app.core.config import ENV_FILE
+from app.repositories.trading_config import get_trading_config
 from app.strategies.models import EntryLimits, money
 
 
@@ -25,9 +26,9 @@ class TradingSettings:
 
 def load_trading_settings() -> TradingSettings:
     load_dotenv(ENV_FILE, override=False)
-    mode = os.environ.get("ORB_MODE", "paper")
-    enabled = os.environ.get("ORB_LIVE_ENABLED", "false").lower()
-    if mode not in {"paper", "live"} or enabled not in {"true", "false"}:
+    config = get_trading_config()
+    mode, enabled = config.mode, config.live_enabled
+    if mode not in {"paper", "live"} or type(enabled) is not bool:
         raise ValueError("Invalid trading mode")
     names = ("PREMIUM", "NOTIONAL", "PLANNED_LOSS", "SPREAD", "SLIPPAGE")
     values = []
@@ -50,7 +51,7 @@ def load_trading_settings() -> TradingSettings:
     age = int(os.environ.get("ORB_QUOTE_MAX_AGE_SECONDS", "5"))
     if poll < 2 or not 1 <= age <= 30:
         raise ValueError("Invalid polling/freshness interval")
-    if mode == "live" and (enabled != "true" or not user or limits is None):
+    if mode == "live" and (not enabled or not user or limits is None):
         raise ValueError(
             "Live trading requires explicit enablement, broker account and monetary limits"
         )
@@ -62,7 +63,7 @@ def load_trading_settings() -> TradingSettings:
         raise ValueError("Invalid execution backend")
     return TradingSettings(
         mode,
-        enabled == "true",
+        enabled,
         user or "paper",
         client,
         limits,

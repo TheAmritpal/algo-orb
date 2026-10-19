@@ -96,3 +96,23 @@ class StatusTests(unittest.TestCase):
         self.run.execution_backend = "gtt"
         result = self.status(self.run)
         self.assertIn("GTT", result.message)
+
+    def test_pending_paper_mode_keeps_active_live_exposure_visible(self):
+        from dataclasses import replace
+
+        self.run.key = replace(self.run.key, mode="live")
+        with (
+            patch(
+                "app.services.strategy_status.load_trading_settings",
+                return_value=self.settings,
+            ),
+            patch("app.services.strategy_status.StrategyRepository") as repo,
+        ):
+            repo.return_value.list_unresolved.side_effect = lambda client, user, mode: (
+                [self.run] if mode == "live" else []
+            )
+            repo.return_value.latest.return_value = None
+            result = get_strategy_status(now=at())
+        self.assertEqual(result.mode, "live")
+        self.assertTrue(result.worker_alive)
+        self.assertEqual(result.run.remaining_quantity, 500)

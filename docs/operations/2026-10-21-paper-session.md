@@ -1,7 +1,7 @@
 # Paper rehearsal — 21 October 2026
 
-The local `.env` is configured with `ORB_MODE=paper` and
-`ORB_LIVE_ENABLED=false`. The existing GTT execution backend uses PaperBroker
+Select Paper mode and disable live trading in the dashboard before starting the worker.
+These settings are stored in MySQL; environment flags no longer control execution mode. The existing GTT execution backend uses PaperBroker
 and PaperGttBroker in this mode. Market data uses the pinned Upstox account;
 order placement, fills and GTT exits are simulated. Protection verification
 remains disabled for live orders.
@@ -12,7 +12,7 @@ remains disabled for live orders.
 2. Start the worker before 09:15 IST from the project root:
 
    ```bash
-   ORB_MODE=paper ORB_LIVE_ENABLED=false uv run python -m app.cli.run_strategy
+   uv run python -m app.cli.run_strategy
    ```
 
    The explicit environment settings also override any inherited live settings.
