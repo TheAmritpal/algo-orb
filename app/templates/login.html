@@ -1,10 +1,9 @@
 {% extends "base.html" %}
+{% block title %}Sign in{% endblock %}
+{% block footer %}{% endblock %}
 {% block content %}
 <section class="card login-card" aria-labelledby="login-title">
-  <div class="brand">AO<span>ALGO ORB</span></div>
-  <p class="eyebrow">YOUR WORKSPACE</p>
-  <h1 id="login-title">Welcome back.</h1>
-  <p class="muted">Sign in to access your trading dashboard.</p>
+  <h1 id="login-title">Sign in</h1>
   {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
   <form action="/login" method="post">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -12,7 +11,7 @@
     <input id="username" name="username" type="text" autocomplete="username" maxlength="128" required autofocus>
     <label for="password">Password</label>
     <input id="password" name="password" type="password" autocomplete="current-password" maxlength="1024" required>
-    <button type="submit">Sign in <span aria-hidden="true">→</span></button>
+    <button type="submit">Sign in</button>
   </form>
 </section>
 {% endblock %}
