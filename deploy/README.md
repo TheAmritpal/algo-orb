@@ -1,6 +1,6 @@
 # Production deployment on Linux
 
-Host Nginx terminates HTTPS and proxies to `127.0.0.1:8000`. Compose runs
+Host Nginx terminates HTTPS and proxies to `127.0.0.1:3000`. Compose runs
 the application only; MySQL and Nginx remain installed on the host. Requires
 Docker Engine and Docker Compose 2.30+ (raw environment file support).
 
@@ -52,7 +52,7 @@ docker compose build web
 docker compose run --rm --no-deps web alembic upgrade head
 docker compose run --rm --no-deps web python -m app.cli.sync_admin
 docker compose up -d web
-curl --fail http://127.0.0.1:8000/health
+curl --fail http://127.0.0.1:3000/health
 docker compose ps
 ```
 
@@ -87,8 +87,9 @@ sudo systemctl reload nginx
 
 Use your distribution's `conf.d` directory instead if it does not use
 sites-available/sites-enabled. Configure DNS and allow host ports 80/443. Port
-8000 is bound only to host loopback; Nginx forwards to that port. Do not expose
-8000 publicly. Nginx overwrites forwarded headers, and Uvicorn trusts only the
+3000 is bound only to host loopback and maps to container port 8000; Nginx
+forwards to host port 3000. Do not expose 3000 publicly. Nginx overwrites
+forwarded headers, and Uvicorn trusts only the
 configured Docker gateway. Verify HTTPS redirects, secure login cookies and
 broker callback behaviour through the actual production domain.
 
