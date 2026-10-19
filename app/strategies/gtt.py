@@ -1,0 +1,276 @@
+"""GTT orchestration: broker triggers exits; application reconciles ownership."""
+
+from datetime import time
+from decimal import Decimal
+from uuid import uuid4
+
+from app.strategies.gtt_models import LEG_TERMINAL
+from app.strategies.models import TERMINAL, OrderRequest
+from app.strategies.rules import IST, premium_levels
+
+
+class GttExecution:
+    def __init__(self, engine, broker, repository):
+        self.engine = engine
+        self.broker = broker
+        self.repository = repository
+
+    def enter(self, run, request, now):
+        engine = self.engine
+        current = engine.clock() if engine.clock else now
+        if (
+            current.astimezone(IST).time() > time(15)
+            or (current - now).total_seconds() > engine.settings.quote_max_age_seconds
+        ):
+            return engine._state(run, "skipped", message="GTT entry pricing expired")
+        stop, target = premium_levels(request.price, run.contract.tick_size)
+        record = self.repository.reserve(run, request, stop, target)
+        if record is None:
+            return engine.repository.get_run(run.id)
+        engine.ownership.assert_owned()
+        current = engine.clock() if engine.clock else now
+        if (
+            current.astimezone(IST).time() > time(15)
+            or not 0
+            <= (current - now).total_seconds()
+            <= engine.settings.quote_max_age_seconds
+        ):
+            self.repository.mutation_result(record.pending["id"], "not_submitted")
+            return engine._state(
+                engine.repository.get_run(run.id),
+                "rejected",
+                message="GTT entry expired before submission",
+            )
+        # Creation uncertainty remains reserved forever until explicitly reconciled.
+        broker_id = self.broker.place(record)
+        self.repository.acknowledge(run.id, broker_id)
+        return engine.repository.get_run(run.id)
+
+    def _sync(self, run, record):
+        engine = self.engine
+        snapshot = self.broker.snapshot(record)
+        self.repository.observe(run.id, snapshot)
+        # Apply entry fills before any sell fills, independent of broker rule order.
+        for leg in sorted(snapshot.legs, key=lambda leg: leg.strategy != "ENTRY"):
+            if not leg.order_id:
+                continue
+            request = OrderRequest(
+                "gtt" + uuid4().hex[:17],
+                record.request.instrument,
+                "D",
+                leg.side,
+                "LIMIT",
+                record.request.quantity,
+                leg.price,
+            )
+            intent = self.repository.attach_child(run.id, leg, request)
+            order = self.broker.child_order(record, leg, intent.request)
+            if order.status == "unknown":
+                raise RuntimeError("Unknown GTT exchange order")
+            run = engine.repository.apply_order(intent.id, order)
+        for intent in engine._intents(run):
+            if intent.purpose != "exit" or intent.status in TERMINAL:
+                continue
+            order = engine.broker.reconcile(intent)
+            if order is None or order.status == "unknown":
+                raise RuntimeError("Unknown controlled exit outcome")
+            run = engine.repository.apply_order(intent.id, order)
+        return engine.repository.get_run(run.id), snapshot
+
+    def _resume_mutation(self, run, record, snapshot):
+        pending = record.pending
+        if pending is None:
+            return True
+        fields = pending["fields"]
+        if pending["kind"] == "modify":
+            prices = {leg.strategy: leg.price for leg in snapshot.legs}
+            if (prices["STOPLOSS"], prices["TARGET"]) != (
+                Decimal(str(fields["stop"])),
+                Decimal(str(fields["target"])),
+            ):
+                return False
+            self.repository.levels(run.id, prices["STOPLOSS"], prices["TARGET"])
+        elif pending["kind"] == "cancel":
+            if not self._triggers_disabled(snapshot):
+                raise RuntimeError("GTT cancellation outcome uncertain")
+        elif pending["kind"] == "cancel_child":
+            intent = next(
+                i
+                for i in self.engine._intents(run)
+                if i.broker_id == fields["order_id"]
+            )
+            if intent.status not in TERMINAL:
+                raise RuntimeError("GTT child cancellation outcome uncertain")
+        else:
+            raise RuntimeError("GTT creation outcome uncertain")
+        self.repository.mutation_result(pending["id"], "confirmed")
+        return True
+
+    @staticmethod
+    def _triggers_disabled(snapshot):
+        # An already generated working order must be cancelled separately.
+        return all(
+            leg.status in LEG_TERMINAL
+            or (leg.status in {"OPEN", "TRIGGERED"} and leg.order_id)
+            for leg in snapshot.legs
+        )
+
+    def _cancel_child(self, run, record, intent):
+        if not intent.broker_id:
+            raise RuntimeError("Unknown exchange child identity")
+        mutation = self.repository.mutation(
+            run.id, "cancel_child", {"order_id": intent.broker_id}
+        )
+        self.engine.ownership.assert_owned()
+        self.engine.broker.cancel(intent.broker_id)
+        run, snapshot = self._sync(run, record)
+        current = next(i for i in self.engine._intents(run) if i.id == intent.id)
+        if current.status not in TERMINAL:
+            raise RuntimeError("Exchange cancellation not confirmed")
+        self.repository.mutation_result(mutation, "confirmed")
+        return run, snapshot
+
+    def _drain(self, run, record, snapshot, *, force_cancel=False):
+        """Disable parent triggers AND working generated orders before local sells."""
+        if force_cancel and snapshot.terminal:
+            self.repository.mutation_result(record.pending["id"], "superseded")
+        if (force_cancel and not snapshot.terminal) or not self._triggers_disabled(
+            snapshot
+        ):
+            mutation = self.repository.mutation(run.id, "cancel", {})
+            self.engine.ownership.assert_owned()
+            self.broker.cancel(record)
+            run, snapshot = self._sync(run, record)
+            if not self._triggers_disabled(snapshot):
+                raise RuntimeError("Parent cancellation not confirmed")
+            self.repository.mutation_result(mutation, "confirmed")
+        for intent in self.engine._intents(run):
+            if intent.purpose != "exit" and intent.status not in TERMINAL:
+                run, snapshot = self._cancel_child(run, record, intent)
+        # Refresh again to discover orders generated while cancellation was in flight.
+        run, snapshot = self._sync(run, record)
+        if not snapshot.terminal or any(
+            i.purpose != "exit" and i.status not in TERMINAL
+            for i in self.engine._intents(run)
+        ):
+            raise RuntimeError("GTT parent or children still active")
+        return run, snapshot
+
+    def _finish_or_exit(
+        self, run, record, snapshot, now, reason, *, force_cancel=False
+    ):
+        engine = self.engine
+        run, snapshot = self._drain(run, record, snapshot, force_cancel=force_cancel)
+        engine._position_matches(run)
+        exits = [
+            i
+            for i in engine._intents(run)
+            if i.purpose == "exit" and i.status not in TERMINAL
+        ]
+        if exits:
+            if (now - exits[0].submitted_at).total_seconds() < 30:
+                return run
+            run, snapshot = self._cancel_child(run, record, exits[0])
+            engine._position_matches(run)
+        if not run.remaining_quantity:
+            return engine._state(
+                run,
+                "closed" if run.filled_quantity else "rejected",
+                message="GTT and exchange orders resolved",
+            )
+        return engine._exit(run, now, reason)
+
+    def manage(self, run, now):
+        engine = self.engine
+        try:
+            record = self.repository.get(run.id)
+            if not record.broker_id:
+                raise RuntimeError("GTT creation identity unknown")
+            if run.key.mode == "paper":
+                self.broker.restore(record, engine._intents(run))
+            run, snapshot = self._sync(run, record)
+            if not self._resume_mutation(run, record, snapshot):
+                return self._finish_or_exit(
+                    run,
+                    record,
+                    snapshot,
+                    now,
+                    "GTT protection update unconfirmed",
+                    force_cancel=True,
+                )
+            record = self.repository.get(run.id)
+            now = engine.clock() if engine.clock else now
+            deadline = run.key.exchange_date < now.astimezone(
+                IST
+            ).date() or now.astimezone(IST).time() >= time(15, 25)
+            engine._position_matches(run)
+            entry = next(leg for leg in snapshot.legs if leg.strategy == "ENTRY")
+            exits = [leg for leg in snapshot.legs if leg.strategy != "ENTRY"]
+            any_sell = any(
+                i.purpose != "entry" and i.fills for i in engine._intents(run)
+            )
+            partial = 0 < run.filled_quantity < run.requested_quantity
+            timeout = (
+                entry.status != "COMPLETED"
+                and (now - record.created_at).total_seconds() >= 30
+            )
+            failure = any(
+                leg.status in {"FAILED", "EXPIRED", "CANCELLED"} for leg in exits
+            ) or entry.status in {"FAILED", "EXPIRED", "CANCELLED"}
+            if entry.status == "COMPLETED" and any(
+                leg.status in {"INACTIVE", "PENDING"} for leg in exits
+            ):
+                failure = True
+            if (
+                deadline
+                or partial
+                or timeout
+                or failure
+                or any_sell
+                or snapshot.terminal
+            ):
+                reason = "time" if deadline else "GTT partial fill or terminal leg"
+                return self._finish_or_exit(run, record, snapshot, now, reason)
+            if not run.filled_quantity:
+                return engine._state(
+                    run, "entry_pending", message="Waiting for GTT entry fill"
+                )
+            if entry.status != "COMPLETED":
+                raise RuntimeError("Unconfirmed GTT entry completion")
+            try:
+                stop, target = premium_levels(run.entry_average, run.contract.tick_size)
+            except ValueError:
+                return self._finish_or_exit(
+                    run, record, snapshot, now, "Unrepresentable GTT protection"
+                )
+            prices = {leg.strategy: leg.price for leg in snapshot.legs}
+            if (prices["STOPLOSS"], prices["TARGET"]) != (stop, target):
+                mutation = self.repository.mutation(
+                    run.id, "modify", {"stop": stop, "target": target}
+                )
+                engine.ownership.assert_owned()
+                self.broker.modify(record, stop, target)
+                run, snapshot = self._sync(run, record)
+                prices = {leg.strategy: leg.price for leg in snapshot.legs}
+                if (prices["STOPLOSS"], prices["TARGET"]) != (stop, target):
+                    raise RuntimeError("GTT levels not confirmed")
+                self.repository.levels(run.id, stop, target)
+                self.repository.mutation_result(mutation, "confirmed")
+                # An exit can execute during modification/read-back.
+                if run.remaining_quantity != run.requested_quantity or any(
+                    leg.status in LEG_TERMINAL
+                    for leg in snapshot.legs
+                    if leg.strategy != "ENTRY"
+                ):
+                    return self._finish_or_exit(
+                        run, record, snapshot, now, "GTT exit during modification"
+                    )
+            return engine._state(
+                run,
+                "open",
+                stop=stop,
+                target=target,
+                message="Upstox GTT monitors target and stop-loss",
+            )
+        except Exception:  # noqa: BLE001 -- never expose broker/SQL exception text
+            engine._fail(run, "GTT outcome uncertain; reconciliation required")

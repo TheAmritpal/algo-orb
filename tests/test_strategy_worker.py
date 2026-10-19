@@ -55,3 +55,28 @@ class WorkerTests(unittest.TestCase):
         with patch("app.cli.run_strategy.build_components", return_value=c):
             self.assertEqual(run_worker(TradingSettings(), Event()), 2)
         c.engine.tick.assert_not_called()
+
+    def test_worker_wires_simulation_and_live_gtt_without_order_submission(self):
+        from app.services.gtt_broker import GttBroker
+        from app.services.paper_gtt import PaperGttBroker
+
+        with (
+            patch(
+                "app.cli.run_strategy.get_token", return_value=N(access_token="fake")
+            ),
+            patch("app.cli.run_strategy.sdk_data", return_value=N(user_id="u")),
+        ):
+            for mode, expected in [("paper", PaperGttBroker), ("live", GttBroker)]:
+                with self.subTest(mode=mode):
+                    components = build_components(
+                        TradingSettings(mode=mode, user_id="u", client_id="app")
+                    )
+                    try:
+                        self.assertIsInstance(components.engine.gtt.broker, expected)
+                        self.assertEqual(
+                            components.engine.settings.execution_backend, "gtt"
+                        )
+                    finally:
+                        from app.services.trading_broker import Broker
+
+                        Broker(components.client).close()

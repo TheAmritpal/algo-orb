@@ -76,7 +76,7 @@ class SessionTests(unittest.TestCase):
         repo = MemoryRepository()
         broker = PaperBroker(market.quote)
         lock = MagicMock(spec=["assert_owned"])
-        engine = StrategyEngine(TradingSettings(), repo, market, broker, lock)
+        engine = StrategyEngine(TradingSettings(execution_backend="orders"), repo, market, broker, lock)
         with patch("app.services.trading_market.clock.sleep"):
             engine.tick(now[0])
             engine.tick(now[0])
@@ -87,7 +87,7 @@ class SessionTests(unittest.TestCase):
         self.assertEqual((run.state, run.remaining_quantity), ("closed", 0))
         self.assertEqual(
             (run.entry_average, run.stop, run.target),
-            (D("100.05"), D("90.05"), D("120.05")),
+            (D("100.05"), D("90.05"), D("118.05")),
         )
         self.assertTrue(all(i.request.product == "D" for i in repo.intents.values()))
         self.assertEqual(
@@ -102,7 +102,7 @@ class SessionTests(unittest.TestCase):
         )
         broker = PaperBroker(market.quote)
         engine = StrategyEngine(
-            TradingSettings(), repo, market, broker, MagicMock(spec=["assert_owned"])
+            TradingSettings(execution_backend="orders"), repo, market, broker, MagicMock(spec=["assert_owned"])
         )
         engine.tick(at())
         self.assertEqual(len(repo.intents), 0)
@@ -121,7 +121,7 @@ class SessionTests(unittest.TestCase):
 
         broker.submit = uncertain
         engine = StrategyEngine(
-            TradingSettings(), repo, market, broker, MagicMock(spec=["assert_owned"])
+            TradingSettings(execution_backend="orders"), repo, market, broker, MagicMock(spec=["assert_owned"])
         )
         engine.tick(at())
         engine.tick(at())
@@ -133,7 +133,7 @@ class SessionTests(unittest.TestCase):
         market = FakeMarket()
         broker = PaperBroker(market.quote)
         engine = StrategyEngine(
-            TradingSettings(),
+            TradingSettings(execution_backend="orders"),
             repo,
             market,
             broker,

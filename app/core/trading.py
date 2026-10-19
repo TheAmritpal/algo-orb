@@ -20,6 +20,7 @@ class TradingSettings:
     poll_seconds: int = 2
     quote_max_age_seconds: int = 5
     protective_stop_verified: bool = False
+    execution_backend: str = "gtt"
 
 
 def load_trading_settings() -> TradingSettings:
@@ -49,6 +50,9 @@ def load_trading_settings() -> TradingSettings:
     verified = os.environ.get("ORB_PROTECTIVE_STOP_VERIFIED", "false").lower()
     if verified not in {"true", "false"}:
         raise ValueError("Invalid protective-stop verification flag")
+    backend = os.environ.get("ORB_EXECUTION_BACKEND", "gtt")
+    if backend not in {"gtt", "orders"}:
+        raise ValueError("Invalid execution backend")
     return TradingSettings(
         mode,
         enabled == "true",
@@ -58,4 +62,5 @@ def load_trading_settings() -> TradingSettings:
         poll,
         age,
         verified == "true",
+        backend,
     )

@@ -12,7 +12,9 @@ from app.core.trading import TradingSettings, load_trading_settings
 from app.repositories.strategy import StrategyRepository
 from app.repositories.tokens import get_token
 from app.repositories.worker_lock import WorkerLock
+from app.services.gtt_broker import GttBroker
 from app.services.paper_broker import PaperBroker
+from app.services.paper_gtt import PaperGttBroker
 from app.services.trading_broker import Broker
 from app.services.trading_market import MarketData, sdk_data
 from app.strategies.engine import StrategyEngine
@@ -70,6 +72,9 @@ def build_components(settings: TradingSettings) -> Components:
             broker,
             lock,
             clock=lambda: datetime.now(UTC),
+            gtt_broker=PaperGttBroker(broker)
+            if settings.mode == "paper"
+            else GttBroker(client),
         )
         return Components(lock, engine, broker, market, client)
     except Exception:

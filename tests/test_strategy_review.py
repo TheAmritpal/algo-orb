@@ -43,7 +43,7 @@ class ReviewRegressionTests(unittest.TestCase):
         self.market.q = replace(self.market.q, ask=D("100.05"))
         self.broker = PartialBroker(self.market.quote, off_tick)
         self.engine = StrategyEngine(
-            TradingSettings(),
+            TradingSettings(execution_backend="orders"),
             self.repo,
             self.market,
             self.broker,
@@ -152,7 +152,7 @@ class ReviewRegressionTests(unittest.TestCase):
         market.underlying = replace(market.underlying, timestamp=at(9, 45, 1))
         market.q = replace(market.q, timestamp=at(9, 45, 1))
         engine = StrategyEngine(
-            TradingSettings(),
+            TradingSettings(execution_backend="orders"),
             repo,
             market,
             broker,
@@ -194,7 +194,7 @@ class ReviewRegressionTests(unittest.TestCase):
         market = FakeMarket()
         broker = PaperBroker(market.quote)
         engine = StrategyEngine(
-            TradingSettings(), repo, market, broker, MagicMock(spec=["assert_owned"])
+            TradingSettings(execution_backend="orders"), repo, market, broker, MagicMock(spec=["assert_owned"])
         )
         original = market.snapshot
         market.snapshot = MagicMock(side_effect=TradingUnavailable("temporary"))

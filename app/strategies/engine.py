@@ -19,7 +19,18 @@ from app.strategies.rules import (
 
 
 class StrategyEngine:
-    def __init__(self, settings, repository, market, broker, ownership, *, clock=None):
+    def __init__(
+        self,
+        settings,
+        repository,
+        market,
+        broker,
+        ownership,
+        *,
+        clock=None,
+        gtt_broker=None,
+        gtt_repository=None,
+    ):
         self.settings = settings
         self.repository = repository
         self.market = market
@@ -28,6 +39,12 @@ class StrategyEngine:
         self.entries_enabled = True
         self.clock = clock
         self._tick_time = None
+        self.gtt = None
+        if gtt_broker is not None:
+            from app.repositories.gtt import GttRepository
+            from app.strategies.gtt import GttExecution
+
+            self.gtt = GttExecution(self, gtt_broker, gtt_repository or GttRepository())
 
     def stop_entries(self):
         self.entries_enabled = False
@@ -53,6 +70,10 @@ class StrategyEngine:
         )
 
     def _submit(self, run, purpose, request):
+        if purpose == "entry" and self.settings.execution_backend == "gtt":
+            if self.gtt is None:
+                raise ValueError("GTT execution adapter unavailable")
+            return self.gtt.enter(run, request, self._tick_time)
         intent = (
             self.repository.reserve_entry(run.id, run.version, request)
             if purpose == "entry"
@@ -169,6 +190,10 @@ class StrategyEngine:
         )
 
     def _manage(self, run, now):
+        if run.execution_backend == "gtt":
+            if self.gtt is None:
+                return self._fail(run, "GTT recovery adapter unavailable")
+            return self.gtt.manage(run, now)
         try:
             run = self._sync(run)
             now = self.clock() if self.clock else now
@@ -253,7 +278,13 @@ class StrategyEngine:
                     return self._state(run, "closed", message="Position closed")
                 return self._exit(run, now, "retry confirmed terminal exit")
             try:
-                stop, target = premium_levels(run.entry_average, run.contract.tick_size)
+                stop, target = (
+                    (run.stop, run.target)
+                    if run.state != "entry_pending"
+                    and run.stop is not None
+                    and run.target is not None
+                    else premium_levels(run.entry_average, run.contract.tick_size)
+                )
             except ValueError:
                 return self._exit(run, now, "unrepresentable premium protection")
             run = self._state(
