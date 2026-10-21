@@ -51,7 +51,7 @@ docker compose build web
 # One-off commands do not start the HTTP server or strategy worker.
 docker compose run --rm --no-deps web alembic upgrade head
 docker compose run --rm --no-deps web python -m app.cli.sync_admin
-docker compose up -d web token-scheduler
+docker compose up -d
 curl --fail http://127.0.0.1:3000/health
 docker compose ps
 ```
@@ -97,24 +97,27 @@ Access logs are disabled in both Nginx and Uvicorn to avoid storing OAuth codes.
 Nginx critical error logs may still contain request URIs; restrict log access
 and ensure any outer proxy/monitor also redacts callback query strings.
 
-## Optional strategy worker
+## Strategy worker
 
-Starting `web` does not start trading. For the 21 October paper session, confirm
-Paper mode and disable live trading in the dashboard Trading settings, reconnect
-Upstox for a valid token, then explicitly start the worker before 09:15 IST:
+An unqualified `docker compose up -d` starts web, token-scheduler and worker.
+The worker uses the database Trading settings for paper or live mode and requires
+a connected account and valid token. Confirm the intended mode before startup;
+live mode still requires explicit enablement and configured trading limits.
+Starting only `web` does not start the worker. To start or inspect it separately:
 
 ```bash
-docker compose --profile trading up -d worker
+docker compose up -d worker
 docker compose logs --tail 100 worker
 ```
 
-The worker deliberately has no automatic restart policy: a one-day paper run
-must not silently resume on another exchange day. Monitor its heartbeat and
-`/strategy/history`; keep it running through the 15:25 exit and final
-reconciliation, then stop it:
+The worker uses `restart: unless-stopped` in both paper and live mode. Docker
+restarts it after process exits or a daemon/server restart unless it was manually
+stopped. An explicit `docker compose up -d` starts stopped services again.
+Monitor its heartbeat and `/strategy/history`; container uptime alone does not
+confirm successful strategy initialization. To stop it intentionally:
 
 ```bash
-docker compose --profile trading stop worker
+docker compose stop worker
 ```
 
 There is no date-based stop or live switch. Do not leave the paper worker
@@ -128,11 +131,11 @@ execution. Never start a second worker during unresolved exposure.
 ```bash
 docker compose build web
 docker compose run --rm --no-deps web alembic upgrade head
-docker compose up -d --no-deps web token-scheduler
+docker compose up -d --no-deps
 ```
 
-Existing worker containers continue using their original image and environment;
-coordinate worker updates outside active trading after reconciling exposure.
+This also recreates the worker when its image or configuration changes;
+coordinate updates outside active trading after reconciling exposure.
 Changes to `.env.production` require container recreation, not just restart.
 Avoid `docker compose config` without `--quiet` or `--no-env-resolution` in logs:
 resolved output contains credentials. Application source is copied into the
@@ -155,10 +158,10 @@ Compose includes a `token-scheduler` service. It renews saved connections at
 it catches up during 08:30–15:30 IST. After 15:30 it waits for the next weekday.
 Exchange holidays are not excluded; this service only retrieves credentials.
 
-Build and start the web application and scheduler:
+Build and start all services, including the strategy worker:
 
 ```bash
-docker compose up -d --build web token-scheduler
+docker compose up -d --build
 docker compose logs --tail 50 token-scheduler
 ```
 
@@ -186,8 +189,11 @@ To disable only automatic token renewal:
 docker compose stop token-scheduler
 ```
 
-Start the strategy separately only after the dashboard confirms the expected
-account is connected. Do not stop a live worker solely to refresh a token while
+Automatic worker restarts do not refresh broker credentials. The scheduler
+still refuses renewal while the worker holds its account lock; unattended daily
+credential handoff is not implemented. After exposure is resolved, stop the
+worker, renew credentials, then start it again after the dashboard confirms the
+expected account is connected. Do not stop a live worker solely to refresh a token while
 it is managing exposure. If an expired token prevents recovery of unresolved
 exposure, retrieve the fresh token with workers stopped, then explicitly restart
 the worker for reconciliation. This command can retrieve credentials in that

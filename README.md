@@ -623,6 +623,11 @@ Compose includes `token-scheduler` for automatic weekday renewal at **08:30 IST*
 (with late-start catch-up until 15:30 IST). It uses the default renewal command,
 so disconnected accounts stay disconnected. Failures are logged without an
 automatic retry that day while the process remains running. It does not start
-trading. Start it with `docker compose up -d --build web token-scheduler`.
+trading. Start all Compose services, including the strategy worker, with
+`docker compose up -d --build`. The worker starts automatically in the configured
+paper or live mode and uses `restart: unless-stopped`; live execution still
+requires explicit enablement and configured trading limits. Automatic restarts
+do not refresh tokens: renewal refuses while a worker holds the account lock,
+so daily credential handoff still requires coordinated worker management.
 Compose uses `.env.production` by default, so configure the TOTP values there
 for production. See [deploy/README.md](deploy/README.md) for setup and monitoring.
