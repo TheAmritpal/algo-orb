@@ -1,0 +1,13 @@
+variant,date,reason
+cap_24__fixed_10_18,2026-04-27,nonpositive_stop
+cap_24__fixed_10_18,2026-05-25,nonpositive_stop
+cap_24__fixed_10_18,2026-08-24,nonpositive_stop
+cap_24__fixed_10_18,2026-09-28,nonpositive_stop
+cap_20__fixed_10_18,2026-04-27,nonpositive_stop
+cap_20__fixed_10_18,2026-05-25,nonpositive_stop
+cap_20__fixed_10_18,2026-08-24,nonpositive_stop
+cap_20__fixed_10_18,2026-09-28,nonpositive_stop
+cap_24__fixed_7_14,2026-08-24,nonpositive_stop
+cap_24__fixed_7_14,2026-09-28,nonpositive_stop
+cap_20__fixed_7_14,2026-08-24,nonpositive_stop
+cap_20__fixed_7_14,2026-09-28,nonpositive_stop
