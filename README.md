@@ -266,6 +266,10 @@ Entries use NRML (`product="D"`) and one durable entry allowance per selected
 account, mode and exchange date. Rejected or uncertain attempts consume that
 allowance. No top-ups or re-entry; old signals are not replayed after restart.
 The last-entry cutoff is 15:00 IST. Holidays and special sessions are skipped.
+New entries are also skipped on the nearest monthly contract's actual expiry
+date from Upstox metadata; the worker does not roll to a later expiry to enter
+that day. The skipped run records `expiry_day`. Existing positions continue to
+be reconciled and exited on expiry days.
 
 `ORB_EXECUTION_BACKEND=gtt` (default) submits a multi-leg Upstox GTT after candle
 confirmation. ENTRY uses `IMMEDIATE` at the validated option ask; Upstox documents
@@ -275,8 +279,8 @@ our worker's polling delay from the normal exit trigger path. This does not
 remove exchange latency, slippage, gaps or the possibility of an unfilled order.
 Market protection is explicitly automatic (`-1`) for applicable GTT legs.
 
-Initial TP/SL are ask +18 / -10 premium points. Confirmed average entry fills
-set the final target to average +18 and stop to average -10, with modification
+Initial TP/SL are ask +10 / -5 premium points. Confirmed average entry fills
+set the final target to average +10 and stop to average -5, with modification
 read-back. Exact levels must fit the contract tick. The worker never submits a
 parallel local TP/SL while GTT exits remain active. An unfilled entry is cancelled
 after a 30-second observation window, subject to confirmed broker outcomes.
@@ -295,7 +299,7 @@ NRML does not provide an intraday auto-square-off guarantee.
 
 `ORB_EXECUTION_BACKEND=orders` selects the existing ordinary limit-entry,
 broker stop-limit and application-monitored target path. New trades also use
-+18/-10. Recovery uses the backend stored on the run, independent of the current
++10/-5. Recovery uses the backend stored on the run, independent of the current
 setting. Existing ordinary-order runs retain their recorded levels.
 
 ### Settings and deployment
@@ -316,14 +320,14 @@ For live deployment, all five `ORB_MAX_*` settings must be explicitly configured
 Use finite positive rupee amounts, or the literal `none` for `PREMIUM` and
 `NOTIONAL` only to disable those two caps. Blank values remain unconfigured.
 `PREMIUM` caps unit premium; `NOTIONAL` caps total entry
-premium (`price × units`); `PLANNED_LOSS` caps the planned `₹10 × units` risk;
+premium (`price × units`); `PLANNED_LOSS` caps the planned `₹5 × units` risk;
 `SPREAD` caps ask-minus-bid; `SLIPPAGE` bounds the sell-limit price below the
 observed bid and protective trigger. Buy limits use the quoted ask, not an
 unbounded market order. Quote freshness defaults to 5 seconds and polling to
 2 seconds. Configuration must match available premium funds and selected lots.
 An uncapped premium or notional never bypasses the available-funds check.
 `PLANNED_LOSS` remains a required total-rupee cap; the premium stop is still
-10 points per unit. For a 500-unit lot, two lots plan ₹10,000 of stop loss before
+5 points per unit. For a 500-unit lot, two lots plan ₹5,000 of stop loss before
 costs, gaps and execution losses. Lot metadata can change; a larger lot will
 fail this cap until it is explicitly reviewed.
 

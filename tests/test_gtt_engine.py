@@ -74,8 +74,8 @@ class GttExecutionTests(unittest.TestCase):
             )
         ]
         for strategy, price, side in [
-            ("TARGET", "118", "SELL"),
-            ("STOPLOSS", "90", "SELL"),
+            ("TARGET", "110", "SELL"),
+            ("STOPLOSS", "95", "SELL"),
         ]:
             status = "CANCELLED" if terminal else "SCHEDULED"
             oid = None
@@ -88,7 +88,7 @@ class GttExecutionTests(unittest.TestCase):
                     "complete",
                     500,
                     500,
-                    (Fill("targettrade", oid, 500, D(118)),),
+                    (Fill("targettrade", oid, 500, D(110)),),
                 )
             legs.append(GttLeg(strategy, status, D(price), side, oid))
         return GttSnapshot("GTT-1", tuple(legs))
@@ -116,9 +116,9 @@ class GttExecutionTests(unittest.TestCase):
             legs=tuple(
                 replace(
                     l,
-                    price=D("117.5")
+                    price=D("109.5")
                     if l.strategy == "TARGET"
-                    else D("89.5")
+                    else D("94.5")
                     if l.strategy == "STOPLOSS"
                     else l.price,
                 )
@@ -130,7 +130,7 @@ class GttExecutionTests(unittest.TestCase):
         run = self.repo.get_run(self.run.id)
         self.assertEqual(
             (run.state, run.stop, run.target, run.remaining_quantity),
-            ("open", D("89.5"), D("117.5"), 500),
+            ("open", D("94.5"), D("109.5"), 500),
         )
         self.adapter.modify.assert_called_once()
         self.assertFalse(
@@ -347,10 +347,10 @@ class GttIntegrationTests(unittest.TestCase):
                         run.target,
                         run.remaining_quantity,
                     ),
-                    ("gtt", D(90), D(118), 500),
+                    ("gtt", D(95), D(110), 500),
                 )
                 self.assertEqual(run.contract.option_type, direction)
-                self.market.move(at(10, 0), "118", "119")
+                self.market.move(at(10, 0), "110", "111")
                 self.tick()
                 self.tick()
                 self.tick()
@@ -362,6 +362,19 @@ class GttIntegrationTests(unittest.TestCase):
                     sum(i.purpose == "entry" for i in self.repo.intents.values()), 1
                 )
                 self.assertEqual(len(self.gtts.records), 1)
+
+    def test_expiry_day_does_not_reserve_or_create_a_gtt(self):
+        for direction in ("CE", "PE"):
+            with self.subTest(direction=direction):
+                self.setup_engine(direction)
+                self.market.contract = replace(
+                    self.market.contract, expiry=at().date()
+                )
+                self.tick()
+                self.assertEqual(self.latest().state, "skipped")
+                self.assertFalse(self.latest().entry_reserved)
+                self.assertFalse(self.gtts.records)
+                self.assertFalse(self.repo.intents)
 
     def test_restart_and_backend_setting_change_keep_gtt_management(self):
         from app.services.paper_gtt import PaperGttBroker
@@ -401,7 +414,7 @@ class GttIntegrationTests(unittest.TestCase):
         self.setup_engine()
         self.tick()
         self.tick()
-        self.market.move(at(10, 0), "89", "90")
+        self.market.move(at(10, 0), "95", "96")
         self.tick()
         self.tick()
         self.assertEqual(

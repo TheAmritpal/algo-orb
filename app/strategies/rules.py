@@ -18,6 +18,8 @@ from app.strategies.models import (
 
 IST = ZoneInfo("Asia/Kolkata")
 UNDERLYING = "NSE_EQ|INE002A01018"
+PREMIUM_STOP_DISTANCE = Decimal("5")
+PREMIUM_TARGET_DISTANCE = Decimal("10")
 
 
 def session_candles(candles: list[Candle], now: datetime) -> list[Candle]:
@@ -115,7 +117,8 @@ def select_contract(
 def premium_levels(average: Decimal, tick: Decimal) -> tuple[Decimal, Decimal]:
     money(average)
     money(tick)
-    stop, target = average - 10, average + 18
+    stop = average - PREMIUM_STOP_DISTANCE
+    target = average + PREMIUM_TARGET_DISTANCE
     if stop <= 0 or stop % tick or target % tick:
         raise ValueError("Unrepresentable premium levels")
     return stop, target

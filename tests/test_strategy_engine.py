@@ -1,4 +1,6 @@
 import unittest
+from dataclasses import replace
+from datetime import timedelta
 from decimal import Decimal as D
 from unittest.mock import MagicMock
 
@@ -73,15 +75,58 @@ class EngineTests(unittest.TestCase):
                     ("D", 500, direction),
                 )
                 self.assertEqual(
-                    (r.entry_average, r.stop, r.target), (D(100), D(90), D(118))
+                    (r.entry_average, r.stop, r.target), (D(100), D(95), D(110))
                 )
                 self.assertEqual(r.remaining_quantity, 500)
+
+    def test_expiry_day_blocks_entry_without_rolling_to_next_month(self):
+        for direction in ("CE", "PE"):
+            with self.subTest(direction=direction):
+                self.setup_engine(direction)
+                expiring = replace(self.market.contract, expiry=at().date())
+                later = replace(
+                    expiring,
+                    instrument_key="next-month",
+                    expiry=expiring.expiry + timedelta(days=30),
+                )
+                snapshot = replace(
+                    self.market.snapshot(at()), contracts=[later, expiring]
+                )
+                self.market.snapshot = lambda now, contract=None: snapshot
+                self.run_now()
+                self.run_now()
+                self.assertEqual(self.latest().state, "skipped")
+                self.assertEqual(self.latest().contract, expiring)
+                self.assertFalse(self.latest().entry_reserved)
+                self.assertFalse(self.repo.intents)
+                self.assertFalse(self.broker.orders)
+                blocked = [e for e in self.repo.events if e[1] == "entry_blocked"]
+                self.assertEqual(len(blocked), 1)
+                self.assertEqual(blocked[0][2]["reason"], "expiry_day")
+
+    def test_expiry_day_still_exits_an_existing_position(self):
+        self.setup_engine()
+        self.run_now()
+        self.run_now()
+        run = self.latest()
+        self.repo.transition(
+            run.id,
+            run.version,
+            run.state,
+            {"contract": replace(run.contract, expiry=at().date())},
+        )
+        self.market.move(at(15, 25))
+        for _ in range(3):
+            self.run_now(at(15, 25))
+        self.assertEqual(
+            (self.latest().state, self.latest().remaining_quantity), ("closed", 0)
+        )
 
     def test_target_closes_and_daily_limit_prevents_reentry(self):
         self.setup_engine()
         self.run_now()
         self.run_now()
-        self.market.move(at(10, 0), "120", "121")
+        self.market.move(at(10, 0), "110", "111")
         for _ in range(3):
             self.run_now(at(10, 0))
         self.assertEqual(

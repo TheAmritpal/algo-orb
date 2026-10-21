@@ -11,9 +11,9 @@ from app.strategies.rules import premium_levels
 
 
 class GttDomainTests(unittest.TestCase):
-    def test_target_is_eighteen_points(self):
+    def test_stop_is_five_and_target_is_ten_points_from_entry(self):
         self.assertEqual(
-            premium_levels(D("101.50"), D("0.05")), (D("91.50"), D("119.50"))
+            premium_levels(D("101.50"), D("0.05")), (D("96.50"), D("111.50"))
         )
 
     def test_historical_backend_defaults_to_orders(self):

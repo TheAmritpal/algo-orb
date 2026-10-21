@@ -406,6 +406,8 @@ class StrategyEngine:
                     "quantity": selected.quantity,
                 },
             )
+            if selected.expiry == key.exchange_date:
+                raise EntryValidationError("expiry_day")
             block_reason = "contract_already_held"
             if any(
                 p.instrument == selected.instrument_key and p.quantity
