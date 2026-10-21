@@ -1,0 +1,15 @@
+[mcp_servers.mysql]
+command = "npx"
+args = ["-y", "@benborla29/mcp-server-mysql"]
+
+[mcp_servers.mysql.env]
+MYSQL_HOST = "127.0.0.1"
+MYSQL_PORT = "3306"
+MYSQL_USER = "rev"
+MYSQL_PASS = "-DH09zG[KPQ*V"
+MYSQL_DB = "algo_orb"
+
+ALLOW_INSERT_OPERATION = "false"
+ALLOW_UPDATE_OPERATION = "false"
+ALLOW_DELETE_OPERATION = "false"
+ALLOW_DDL_OPERATION = "false"

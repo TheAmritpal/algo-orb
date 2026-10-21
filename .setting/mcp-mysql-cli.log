@@ -1,0 +1,99 @@
+2026-10-21T05:38:42.688Z | INFO | Starting MCP MySQL server from: /home/amritpal/.npm/_npx/080bc9f59514dad9/node_modules/@liangshanli/mcp-server-mysql/src/server-final.js
+2026-10-21T05:38:42.691Z | INFO | Starting MCP MySQL server with environment: | {"MYSQL_HOST":"localhost","MYSQL_PORT":"3306","MYSQL_USER":"rev","MYSQL_DATABASE":"algo_orb","READONLY":"false","ALLOW_DDL":"false","ALLOW_DROP":"false","ALLOW_DELETE":"false","TOOL_PREFIX":"(not set)","PROJECT_NAME":"(not set)","MCP_LOG_DIR":"./.setting","MCP_DDL_LOG_FILE":"ddl.sql"}
+2026-10-21T05:38:42.693Z | INFO | MCP MySQL server process started with PID: 1045101
+2026-10-21T05:38:42.694Z | INFO | Signal handlers registered for SIGINT and SIGTERM
+2026-10-21T05:38:42.694Z | INFO | Press Ctrl+C to gracefully shutdown the server
+2026-10-21T05:38:42.823Z | INFO | Received SIGTERM, shutting down server...
+2026-10-21T05:38:42.825Z | INFO | Sent SIGTERM signal to server process 1045101
+2026-10-21T05:38:42.858Z | INFO | MCP MySQL server exited with code: 0
+2026-10-21T05:38:42.859Z | INFO | Server requested restart, restarting...
+2026-10-21T05:38:50.844Z | INFO | Starting MCP MySQL server from: /home/amritpal/.npm/_npx/080bc9f59514dad9/node_modules/@liangshanli/mcp-server-mysql/src/server-final.js
+2026-10-21T05:38:50.847Z | INFO | Starting MCP MySQL server with environment: | {"MYSQL_HOST":"localhost","MYSQL_PORT":"3306","MYSQL_USER":"rev","MYSQL_DATABASE":"algo_orb","READONLY":"false","ALLOW_DDL":"false","ALLOW_DROP":"false","ALLOW_DELETE":"false","TOOL_PREFIX":"(not set)","PROJECT_NAME":"(not set)","MCP_LOG_DIR":"./.setting","MCP_DDL_LOG_FILE":"ddl.sql"}
+2026-10-21T05:38:50.849Z | INFO | MCP MySQL server process started with PID: 1045284
+2026-10-21T05:38:50.850Z | INFO | Signal handlers registered for SIGINT and SIGTERM
+2026-10-21T05:38:50.850Z | INFO | Press Ctrl+C to gracefully shutdown the server
+2026-10-21T05:38:54.520Z | INFO | Starting MCP MySQL server from: /home/amritpal/.npm/_npx/080bc9f59514dad9/node_modules/@liangshanli/mcp-server-mysql/src/server-final.js
+2026-10-21T05:38:54.523Z | INFO | Starting MCP MySQL server with environment: | {"MYSQL_HOST":"localhost","MYSQL_PORT":"3306","MYSQL_USER":"rev","MYSQL_DATABASE":"algo_orb","READONLY":"false","ALLOW_DDL":"false","ALLOW_DROP":"false","ALLOW_DELETE":"false","TOOL_PREFIX":"(not set)","PROJECT_NAME":"(not set)","MCP_LOG_DIR":"./.setting","MCP_DDL_LOG_FILE":"ddl.sql"}
+2026-10-21T05:38:54.525Z | INFO | MCP MySQL server process started with PID: 1045324
+2026-10-21T05:38:54.525Z | INFO | Signal handlers registered for SIGINT and SIGTERM
+2026-10-21T05:38:54.526Z | INFO | Press Ctrl+C to gracefully shutdown the server
+2026-10-21T05:38:54.637Z | INFO | Received SIGTERM, shutting down server...
+2026-10-21T05:38:54.637Z | INFO | Sent SIGTERM signal to server process 1045324
+2026-10-21T05:38:54.653Z | INFO | MCP MySQL server exited with code: 0
+2026-10-21T05:38:54.653Z | INFO | Server requested restart, restarting...
+2026-10-21T05:43:24.607Z | INFO | Starting MCP MySQL server from: /home/amritpal/.npm/_npx/080bc9f59514dad9/node_modules/@liangshanli/mcp-server-mysql/src/server-final.js
+2026-10-21T05:43:24.610Z | INFO | Starting MCP MySQL server with environment: | {"MYSQL_HOST":"localhost","MYSQL_PORT":"3306","MYSQL_USER":"rev","MYSQL_DATABASE":"algo_orb","READONLY":"false","ALLOW_DDL":"false","ALLOW_DROP":"false","ALLOW_DELETE":"false","TOOL_PREFIX":"(not set)","PROJECT_NAME":"(not set)","MCP_LOG_DIR":"./.setting","MCP_DDL_LOG_FILE":"ddl.sql"}
+2026-10-21T05:43:24.612Z | INFO | MCP MySQL server process started with PID: 1047730
+2026-10-21T05:43:24.612Z | INFO | Signal handlers registered for SIGINT and SIGTERM
+2026-10-21T05:43:24.612Z | INFO | Press Ctrl+C to gracefully shutdown the server
+2026-10-21T05:43:24.716Z | INFO | Received SIGTERM, shutting down server...
+2026-10-21T05:43:24.717Z | INFO | Sent SIGTERM signal to server process 1047730
+2026-10-21T05:43:24.724Z | INFO | MCP MySQL server exited with code: 0
+2026-10-21T05:43:24.724Z | INFO | Server requested restart, restarting...
+2026-10-21T05:43:39.889Z | INFO | Starting MCP MySQL server from: /home/amritpal/.npm/_npx/080bc9f59514dad9/node_modules/@liangshanli/mcp-server-mysql/src/server-final.js
+2026-10-21T05:43:39.891Z | INFO | Starting MCP MySQL server with environment: | {"MYSQL_HOST":"localhost","MYSQL_PORT":"3306","MYSQL_USER":"rev","MYSQL_DATABASE":"algo_orb","READONLY":"false","ALLOW_DDL":"false","ALLOW_DROP":"false","ALLOW_DELETE":"false","TOOL_PREFIX":"(not set)","PROJECT_NAME":"(not set)","MCP_LOG_DIR":"./.setting","MCP_DDL_LOG_FILE":"ddl.sql"}
+2026-10-21T05:43:39.894Z | INFO | MCP MySQL server process started with PID: 1047844
+2026-10-21T05:43:39.894Z | INFO | Signal handlers registered for SIGINT and SIGTERM
+2026-10-21T05:43:39.894Z | INFO | Press Ctrl+C to gracefully shutdown the server
+2026-10-21T05:43:40.436Z | INFO | Received SIGTERM, shutting down server...
+2026-10-21T05:43:40.436Z | INFO | Sent SIGTERM signal to server process 1047844
+2026-10-21T05:43:40.445Z | INFO | MCP MySQL server exited with code: 0
+2026-10-21T05:43:40.446Z | INFO | Server requested restart, restarting...
+2026-10-21T05:43:47.809Z | INFO | Starting MCP MySQL server from: /home/amritpal/.npm/_npx/080bc9f59514dad9/node_modules/@liangshanli/mcp-server-mysql/src/server-final.js
+2026-10-21T05:43:47.811Z | INFO | Starting MCP MySQL server with environment: | {"MYSQL_HOST":"localhost","MYSQL_PORT":"3306","MYSQL_USER":"rev","MYSQL_DATABASE":"algo_orb","READONLY":"false","ALLOW_DDL":"false","ALLOW_DROP":"false","ALLOW_DELETE":"false","TOOL_PREFIX":"(not set)","PROJECT_NAME":"(not set)","MCP_LOG_DIR":"./.setting","MCP_DDL_LOG_FILE":"ddl.sql"}
+2026-10-21T05:43:47.814Z | INFO | MCP MySQL server process started with PID: 1047989
+2026-10-21T05:43:47.814Z | INFO | Signal handlers registered for SIGINT and SIGTERM
+2026-10-21T05:43:47.814Z | INFO | Press Ctrl+C to gracefully shutdown the server
+2026-10-21T05:45:38.408Z | INFO | Received SIGTERM, shutting down server...
+2026-10-21T05:45:38.409Z | INFO | Sent SIGTERM signal to server process 1045284
+2026-10-21T05:45:38.419Z | INFO | MCP MySQL server exited with code: 0
+2026-10-21T05:45:38.419Z | INFO | Server requested restart, restarting...
+2026-10-21T05:45:40.422Z | INFO | Starting MCP MySQL server with environment: | {"MYSQL_HOST":"localhost","MYSQL_PORT":"3306","MYSQL_USER":"rev","MYSQL_DATABASE":"algo_orb","READONLY":"false","ALLOW_DDL":"false","ALLOW_DROP":"false","ALLOW_DELETE":"false","TOOL_PREFIX":"(not set)","PROJECT_NAME":"(not set)","MCP_LOG_DIR":"./.setting","MCP_DDL_LOG_FILE":"ddl.sql"}
+2026-10-21T05:45:40.425Z | INFO | MCP MySQL server process started with PID: 1049745
+2026-10-21T05:45:40.425Z | INFO | Signal handlers registered for SIGINT and SIGTERM
+2026-10-21T05:45:40.425Z | INFO | Press Ctrl+C to gracefully shutdown the server
+2026-10-21T05:46:07.304Z | INFO | MCP MySQL server exited with code: 0
+2026-10-21T05:46:07.304Z | INFO | Server requested restart, restarting...
+2026-10-21T05:46:09.305Z | INFO | Starting MCP MySQL server with environment: | {"MYSQL_HOST":"localhost","MYSQL_PORT":"3306","MYSQL_USER":"rev","MYSQL_DATABASE":"algo_orb","READONLY":"false","ALLOW_DDL":"false","ALLOW_DROP":"false","ALLOW_DELETE":"false","TOOL_PREFIX":"(not set)","PROJECT_NAME":"(not set)","MCP_LOG_DIR":"./.setting","MCP_DDL_LOG_FILE":"ddl.sql"}
+2026-10-21T05:46:09.309Z | INFO | MCP MySQL server process started with PID: 1049909
+2026-10-21T05:46:09.309Z | INFO | Signal handlers registered for SIGINT and SIGTERM
+2026-10-21T05:46:09.309Z | INFO | Press Ctrl+C to gracefully shutdown the server
+2026-10-21T05:46:23.624Z | INFO | Starting MCP MySQL server from: /home/amritpal/.npm/_npx/080bc9f59514dad9/node_modules/@liangshanli/mcp-server-mysql/src/server-final.js
+2026-10-21T05:46:23.627Z | INFO | Starting MCP MySQL server with environment: | {"MYSQL_HOST":"localhost","MYSQL_PORT":"3306","MYSQL_USER":"rev","MYSQL_DATABASE":"algo_orb","READONLY":"false","ALLOW_DDL":"false","ALLOW_DROP":"false","ALLOW_DELETE":"false","TOOL_PREFIX":"(not set)","PROJECT_NAME":"(not set)","MCP_LOG_DIR":"./.setting","MCP_DDL_LOG_FILE":"ddl.sql"}
+2026-10-21T05:46:23.629Z | INFO | MCP MySQL server process started with PID: 1050032
+2026-10-21T05:46:23.629Z | INFO | Signal handlers registered for SIGINT and SIGTERM
+2026-10-21T05:46:23.629Z | INFO | Press Ctrl+C to gracefully shutdown the server
+2026-10-21T05:46:23.742Z | INFO | Received SIGTERM, shutting down server...
+2026-10-21T05:46:23.743Z | INFO | Sent SIGTERM signal to server process 1050032
+2026-10-21T05:46:23.752Z | INFO | MCP MySQL server exited with code: 0
+2026-10-21T05:46:23.753Z | INFO | Server requested restart, restarting...
+2026-10-21T05:47:11.752Z | INFO | Received SIGTERM, shutting down server...
+2026-10-21T05:47:11.752Z | INFO | Sent SIGTERM signal to server process 1049745
+2026-10-21T05:47:11.778Z | INFO | Received SIGTERM, shutting down server...
+2026-10-21T05:47:11.792Z | INFO | Sent SIGTERM signal to server process 1049909
+2026-10-21T05:47:11.813Z | INFO | Received SIGTERM, shutting down server...
+2026-10-21T05:47:11.813Z | INFO | Sent SIGTERM signal to server process 1049909
+2026-10-21T05:47:11.815Z | INFO | Received SIGTERM, shutting down server...
+2026-10-21T05:47:11.818Z | INFO | Sent SIGTERM signal to server process 1049745
+2026-10-21T05:47:21.762Z | WARN | Server shutdown timeout, forcing exit...
+2026-10-21T05:47:21.765Z | INFO | CLI process exiting with code: 1
+2026-10-21T05:47:21.794Z | WARN | Server shutdown timeout, forcing exit...
+2026-10-21T05:47:21.795Z | INFO | CLI process exiting with code: 1
+2026-10-21T05:49:45.502Z | INFO | Starting MCP MySQL server from: /home/amritpal/.npm/_npx/080bc9f59514dad9/node_modules/@liangshanli/mcp-server-mysql/src/server-final.js
+2026-10-21T05:49:45.506Z | INFO | Starting MCP MySQL server with environment: | {"MYSQL_HOST":"localhost","MYSQL_PORT":"3306","MYSQL_USER":"rev","MYSQL_DATABASE":"algo_orb","READONLY":"false","ALLOW_DDL":"false","ALLOW_DROP":"false","ALLOW_DELETE":"false","TOOL_PREFIX":"(not set)","PROJECT_NAME":"(not set)","MCP_LOG_DIR":"./.setting","MCP_DDL_LOG_FILE":"ddl.sql"}
+2026-10-21T05:49:45.509Z | INFO | MCP MySQL server process started with PID: 5605
+2026-10-21T05:49:45.509Z | INFO | Signal handlers registered for SIGINT and SIGTERM
+2026-10-21T05:49:45.509Z | INFO | Press Ctrl+C to gracefully shutdown the server
+2026-10-21T05:49:45.744Z | INFO | Starting MCP MySQL server from: /home/amritpal/.npm/_npx/080bc9f59514dad9/node_modules/@liangshanli/mcp-server-mysql/src/server-final.js
+2026-10-21T05:49:45.748Z | INFO | Starting MCP MySQL server with environment: | {"MYSQL_HOST":"localhost","MYSQL_PORT":"3306","MYSQL_USER":"rev","MYSQL_DATABASE":"algo_orb","READONLY":"false","ALLOW_DDL":"false","ALLOW_DROP":"false","ALLOW_DELETE":"false","TOOL_PREFIX":"(not set)","PROJECT_NAME":"(not set)","MCP_LOG_DIR":"./.setting","MCP_DDL_LOG_FILE":"ddl.sql"}
+2026-10-21T05:49:45.751Z | INFO | MCP MySQL server process started with PID: 5627
+2026-10-21T05:49:45.751Z | INFO | Signal handlers registered for SIGINT and SIGTERM
+2026-10-21T05:49:45.751Z | INFO | Press Ctrl+C to gracefully shutdown the server
+2026-10-21T05:49:45.873Z | INFO | Received SIGTERM, shutting down server...
+2026-10-21T05:49:45.874Z | INFO | Sent SIGTERM signal to server process 5627
+2026-10-21T05:49:45.883Z | INFO | MCP MySQL server exited with code: 0
+2026-10-21T05:49:45.884Z | INFO | Server requested restart, restarting...
+2026-10-21T06:22:04.391Z | INFO | Received SIGTERM, shutting down server...
+2026-10-21T06:22:04.392Z | INFO | Sent SIGTERM signal to server process 5605
+2026-10-21T06:22:04.404Z | INFO | MCP MySQL server exited with code: 0
+2026-10-21T06:22:04.404Z | INFO | Server requested restart, restarting...

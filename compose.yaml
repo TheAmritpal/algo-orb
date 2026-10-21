@@ -49,9 +49,8 @@ services:
 
   worker:
     <<: *app
-    profiles: ["trading"]
     command: ["python", "-m", "app.cli.run_strategy"]
-    restart: "no"
+    restart: unless-stopped
     stop_grace_period: 30s
 
 networks:
