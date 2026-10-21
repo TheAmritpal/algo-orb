@@ -1,0 +1,4 @@
+date,opening_high,opening_low,opening_range_points,expiry_day,opening_range_above_24,status,original_signal,pnl_without_range_filter
+2026-06-22,1344.9,1314.1,30.8,False,True,opening_range_above_24,False,
+2026-07-08,1302.3,1278.0,24.3,False,True,opening_range_above_24,True,57.35
+2026-07-20,1345.9,1314.9,31.0,False,True,opening_range_above_24,False,
