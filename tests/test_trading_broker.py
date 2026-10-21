@@ -87,7 +87,7 @@ class BrokerTests(unittest.TestCase):
         cases = [
             (contract(), quote, D(499999)),
             (contract(), replace(quote, bid=D(998)), D(500000)),
-            (replace(contract(), lot_size=500), quote, D(1000000)),
+            (replace(contract(), lot_size=501), quote, D(1002000)),
         ]
         for selected, pricing, funds in cases:
             with (
@@ -95,6 +95,23 @@ class BrokerTests(unittest.TestCase):
                 self.assertRaises(ValueError),
             ):
                 validate_entry(selected, pricing, at(), settings, funds)
+
+    def test_two_lots_pass_at_5000_planned_loss_but_not_below(self):
+        selected = replace(contract(), lot_size=500)
+        quote = Quote("option", at(), D("18.95"), D(19), D(19))
+        limits = EntryLimits(None, None, D(5000), D(1), D(1))
+        settings = TradingSettings(limits=limits)
+        self.assertEqual(
+            validate_entry(selected, quote, at(), settings, D(19000)), D(19)
+        )
+        with self.assertRaisesRegex(ValueError, "planned loss limit"):
+            validate_entry(
+                selected,
+                quote,
+                at(),
+                replace(settings, limits=replace(limits, max_planned_loss=D(4999))),
+                D(19000),
+            )
 
     def test_protection_flag_alone_does_not_override_missing_account_permissions(self):
         broker = Broker(self.client, orders=self.api, protective_stop_verified=True)

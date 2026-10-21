@@ -6,7 +6,7 @@ import upstox_client as sdk
 
 from app.services.trading_market import TradingUnavailable, decimal, sdk_data
 from app.strategies.models import BrokerOrder, BrokerPosition, Fill
-from app.strategies.rules import premium_levels
+from app.strategies.rules import PREMIUM_STOP_DISTANCE, premium_levels
 
 
 class EntryValidationError(ValueError):
@@ -37,7 +37,10 @@ def validate_entry(contract, quote, now, settings, funds):
                 and quote.ask * contract.quantity > limits.max_notional,
                 "notional_limit",
             ),
-            (10 * contract.quantity > limits.max_planned_loss, "planned_loss_limit"),
+            (
+                PREMIUM_STOP_DISTANCE * contract.quantity > limits.max_planned_loss,
+                "planned_loss_limit",
+            ),
             (quote.ask - quote.bid > limits.max_spread, "spread_limit"),
         )
         for exceeded, reason in checks:
