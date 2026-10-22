@@ -86,6 +86,15 @@
     </dl>
     <p role="status">{{ strategy.state | replace('_', ' ') | title }} · {{ 'Worker heartbeat current' if strategy.worker_alive else 'Worker not confirmed running' }}</p>
     <p class="muted">{{ strategy.message }}</p>
+    <p role="status">{{ strategy.broker.label }}</p>
+    <dl class="strategy-grid">
+      <div><dt>Token validity</dt><dd>{{ strategy.broker.token_state | replace('_', ' ') | title }}</dd></div>
+      <div><dt>Quote freshness</dt><dd>{{ strategy.broker.quote_state | replace('_', ' ') | title }}</dd></div>
+      <div><dt>Broker check (UTC)</dt><dd>{{ strategy.broker.checked_at or 'Not checked' }}</dd></div>
+      <div><dt>Quote timestamp (UTC)</dt><dd>{{ strategy.broker.quote_at or '—' }}</dd></div>
+      <div><dt>Last successful broker check (UTC)</dt><dd>{{ strategy.broker.last_success_at or 'None since web startup' }}</dd></div>
+    </dl>
+    <p class="muted">Read-only checks for the configured strategy account refresh when this page loads, cached for 10 seconds. A heartbeat confirms worker activity only. These checks verify the token and RELIANCE quote, not every strategy API. Last success is retained until the web process restarts.</p>
     {% if strategy.run %}
     {% set run = strategy.run %}
     <dl class="strategy-grid">

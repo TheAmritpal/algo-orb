@@ -118,6 +118,7 @@ class ReviewRegressionTests(unittest.TestCase):
 
     def test_database_failure_keeps_live_mode_label(self):
         with (
+            patch("app.services.strategy_status.get_broker_readiness"),
             patch(
                 "app.services.strategy_status.load_trading_settings",
                 return_value=TradingSettings(mode="live", user_id="pinned"),

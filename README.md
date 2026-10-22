@@ -436,6 +436,16 @@ levels, remaining units, daily allowance and worker heartbeat. A heartbeat older
 than 30 seconds is stale. Neither a connected broker nor a running web server
 means the trading worker is running.
 
+Heartbeat liveness is separate from broker readiness. Loading the dashboard
+performs bounded, read-only profile and exchange-session checks for the strategy's
+pinned account, plus a RELIANCE quote check during the market session. Results
+are cached for ten seconds; cached quotes are still marked stale as soon as they
+exceed the configured quote age. Closed sessions do not require actionable quotes.
+The dashboard shows token validity, quote freshness, check and quote timestamps,
+and the last successful in-session check retained since web startup. It does not
+poll automatically or verify every strategy endpoint, and these checks do not
+renew tokens, place orders, or establish worker readiness for trading.
+
 ### Separate Upstox sandbox and live apps
 
 Apply `uv run alembic upgrade head` before using the updated login flow. Revision

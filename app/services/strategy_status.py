@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 
 from app.core.trading import load_trading_settings
 from app.repositories.strategy import StrategyRepository
+from app.services.broker_readiness import BrokerReadiness, get_broker_readiness
 from app.strategies.models import StrategyRun
 
 
@@ -15,15 +16,20 @@ class StrategyStatus:
     worker_alive: bool = False
     run: StrategyRun | None = None
     message: str = "Select a connected broker account to configure the strategy worker."
+    broker: BrokerReadiness = BrokerReadiness()
 
 
 def get_strategy_status(*, now=None):
+    probe_now = now
     now = now or datetime.now(UTC)
     settings = None
     try:
         settings = load_trading_settings()
         if settings.user_id == "paper":
             return StrategyStatus(mode=settings.mode)
+        broker = get_broker_readiness(settings, now=probe_now)
+        if probe_now is None:
+            now = datetime.now(UTC)
         repo = StrategyRepository()
         # Saved settings apply at next startup. Keep current workers and exposure
         # visible even if the operator has selected another mode for that startup.
@@ -55,6 +61,7 @@ def get_strategy_status(*, now=None):
                 "not_started",
                 settings.mode,
                 message="No strategy run recorded. Worker is not confirmed running.",
+                broker=broker,
             )
         alive = (
             run.heartbeat is not None
@@ -71,7 +78,7 @@ def get_strategy_status(*, now=None):
             message = "Protective-stop support must be verified before live entries. Existing exposure still requires management."
         if run.execution_backend == "gtt":
             message = "GTT execution: Upstox monitors exit triggers. " + message
-        return StrategyStatus(run.state, run.key.mode, alive, run, message)
+        return StrategyStatus(run.state, run.key.mode, alive, run, message, broker)
     except Exception:  # noqa: BLE001 -- fail closed without leaking broker/SQL secrets
         return StrategyStatus(
             "unavailable",

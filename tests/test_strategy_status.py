@@ -7,6 +7,7 @@ from app.core.trading import TradingSettings
 from app.main import app
 from app.repositories.sessions import Session
 from app.services.auth import require_session
+from app.services.broker_readiness import BrokerReadiness
 from app.services.strategy_status import get_strategy_status
 from app.services.upstox import ConnectionStatus
 from app.strategies.models import RunKey, StrategyRun
@@ -16,6 +17,13 @@ from tests.test_strategy_rules import D, at, contract
 
 class StatusTests(unittest.TestCase):
     def setUp(self):
+        self.readiness = patch(
+            "app.services.strategy_status.get_broker_readiness",
+            create=True,
+            return_value=BrokerReadiness("invalid", "unknown", checked_at=at()),
+        )
+        self.readiness.start()
+        self.addCleanup(self.readiness.stop)
         self.settings = TradingSettings(user_id="u", client_id="app")
         self.run = StrategyRun(
             1,
@@ -55,6 +63,12 @@ class StatusTests(unittest.TestCase):
         self.assertFalse(result.worker_alive)
         self.assertIn("exposure", result.message)
 
+    def test_current_heartbeat_cannot_hide_invalid_broker_token(self):
+        result = self.status(self.run)
+        self.assertTrue(result.worker_alive)
+        self.assertEqual(result.broker.token_state, "invalid")
+        self.assertIn("Broker unavailable", result.broker.label)
+
     def test_errors_hide_secrets_and_prior_day_exposure_is_visible(self):
         result = self.status(error=RuntimeError("secret-token"))
         self.assertEqual(result.state, "unavailable")
@@ -89,6 +103,9 @@ class StatusTests(unittest.TestCase):
             b"500",
             b"90",
             b"120",
+            b"Broker unavailable",
+            b"Token validity",
+            b"Quote freshness",
         ):
             self.assertIn(value, body)
 
