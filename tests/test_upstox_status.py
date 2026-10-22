@@ -98,6 +98,11 @@ class UpstoxStatusTests(unittest.TestCase):
         self.assertNotIn("private-token", repr(upstox.connection_status()))
 
     def test_dashboard_renders_status_and_only_connects_when_disconnected(self):
+        from app.services.strategy_status import StrategyStatus
+
+        strategy = patch("app.routers.pages.get_strategy_status", return_value=StrategyStatus())
+        strategy.start()
+        self.addCleanup(strategy.stop)
         app.dependency_overrides[require_session] = lambda: Session(
             7,
             "admin",

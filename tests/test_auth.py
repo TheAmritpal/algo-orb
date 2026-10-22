@@ -17,6 +17,7 @@ from app.main import app
 from app.repositories.sessions import Session
 from app.repositories.users import User
 from app.services import auth
+from app.services.strategy_status import StrategyStatus
 from tests.http import asgi_request
 
 
@@ -61,6 +62,7 @@ class AuthTests(unittest.TestCase):
                 "app.routers.pages.connection_status",
                 return_value=SimpleNamespace(state="disconnected", user_id=None),
             ),
+            patch("app.routers.pages.get_strategy_status", return_value=StrategyStatus()),
         ]
         self.mocks = [p.start() for p in patches]
         for p in patches:
