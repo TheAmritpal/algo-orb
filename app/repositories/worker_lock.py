@@ -14,10 +14,10 @@ class WorkerLock:
         self.connection = None
         self.owner = None
 
-    def acquire(self):
+    def acquire(self, *, timeout=0):
         self.connection = get_connection()
         with self.connection.cursor() as c:
-            c.execute("SELECT GET_LOCK(%s, 0)", (self.name,))
+            c.execute("SELECT GET_LOCK(%s, %s)", (self.name, timeout))
             if c.fetchone()[0] != 1:
                 return False
             c.execute("SELECT CONNECTION_ID()")
@@ -43,3 +43,15 @@ class WorkerLock:
                 self.connection.close()
                 self.connection = None
                 self.owner = None
+
+
+class ExecutionOwnership:
+    """Broker mutations require both worker ownership and the credential lease."""
+
+    def __init__(self, worker, credentials):
+        self.worker = worker
+        self.credentials = credentials
+
+    def assert_owned(self):
+        self.worker.assert_owned()
+        self.credentials.assert_owned()

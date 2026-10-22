@@ -1,8 +1,8 @@
-"""Weekday token renewal at 08:30 IST, independently of strategy execution."""
+"""Daily token renewal at 08:30 IST, independently of strategy execution."""
 
 import logging
 import signal
-from datetime import UTC, date, datetime, time
+from datetime import UTC, date, datetime, time, timedelta
 from threading import Event
 
 from app.services.upstox_totp import retrieve_token
@@ -13,31 +13,31 @@ logger = logging.getLogger(__name__)
 
 def renewal_due(now: datetime, attempted: date | None) -> bool:
     local = now.astimezone(IST)
-    return (
-        local.weekday() < 5
-        and time(8, 30) <= local.time() < time(15, 30)
-        and attempted != local.date()
-    )
+    return time(8, 30) <= local.time() < time(15, 30) and attempted != local.date()
 
 
 def run_scheduler(stop: Event, *, clock=None, renew=None) -> int:
     clock = clock or (lambda: datetime.now(UTC))
     renew = renew or retrieve_token
     attempted = None
+    retry_at = None
+    retry_seconds = 30
     while not stop.is_set():
         now = clock()
-        if renewal_due(now, attempted):
-            # Mark before calling: uncertain issuance or a failed commit must not
-            # cause repeated rotation attempts on every polling interval.
-            attempted = now.astimezone(IST).date()
+        if renewal_due(now, attempted) and (retry_at is None or now >= retry_at):
             try:
                 result = renew()
             except Exception:  # noqa: BLE001 -- broker/DB exception text can contain secrets
                 logger.error(
-                    "Scheduled token renewal failed. No further scheduled attempt today. "
-                    "Check credentials, stopped workers, broker and database availability."
+                    "Scheduled token renewal unavailable; retrying after backoff. "
+                    "Saved credentials will be verified before another issuance attempt."
                 )
+                retry_at = now + timedelta(seconds=retry_seconds)
+                retry_seconds = min(300, retry_seconds * 2)
             else:
+                attempted = now.astimezone(IST).date()
+                retry_at = None
+                retry_seconds = 30
                 message = {
                     "saved": "Scheduled token renewal: verified token saved. No trading started.",
                     "valid": "Scheduled token renewal: existing token is valid.",
@@ -57,7 +57,7 @@ def main() -> int:
     for sig in (signal.SIGINT, signal.SIGTERM):
         signal.signal(sig, lambda *_: stop.set())
     logger.info(
-        "Token scheduler started: weekdays at 08:30 IST; late-start window ends at 15:30 IST."
+        "Token scheduler started: daily at 08:30 IST; late-start window ends at 15:30 IST."
     )
     return run_scheduler(stop)
 

@@ -123,22 +123,20 @@ class RetrievalTests(unittest.TestCase):
         self.client.assert_not_called()
         self.save.assert_not_called()
 
-    def test_active_worker_prevents_token_request(self):
+    def test_busy_credential_lock_defers_token_request(self):
         self.lock.return_value.acquire.return_value = False
         with self.assertRaises(self.service.TokenRetrievalError):
             self.service.retrieve_token(connect=True)
         self.client.assert_not_called()
         self.save.assert_not_called()
 
-    def test_live_worker_also_prevents_issuance_and_releases_paper_lock(self):
-        self.lock.return_value.acquire.side_effect = [True, False]
-        with self.assertRaises(self.service.TokenRetrievalError):
-            self.service.retrieve_token(connect=True)
+    def test_renewal_uses_shared_credential_lock_instead_of_worker_locks(self):
+        self.get.return_value = SimpleNamespace(access_token="old")
+        self.assertEqual(self.service.retrieve_token(), "valid")
         self.assertEqual(
-            [call.args[2] for call in self.lock.call_args_list], ["paper", "live"]
+            [call.args[2] for call in self.lock.call_args_list], ["credentials"]
         )
-        self.client.assert_not_called()
-        self.assertEqual(self.lock.return_value.close.call_count, 2)
+        self.lock.return_value.close.assert_called_once()
 
     def test_commit_failure_reports_failure_without_retrying_issuance(self):
         self.save.side_effect = RuntimeError("SECRET")

@@ -14,6 +14,15 @@ class WorkerTests(unittest.TestCase):
             "app.cli.run_strategy.get_token",
             return_value=N(access_token="startup-token"),
         )
+        credential_lock = patch("app.cli.run_strategy.WorkerLock", autospec=True)
+        self.credential_lock = credential_lock.start()
+        self.credential_lock.return_value.acquire.return_value = True
+        self.addCleanup(credential_lock.stop)
+        profile = patch(
+            "app.cli.run_strategy.sdk_data", return_value=N(user_id="paper")
+        )
+        self.profile = profile.start()
+        self.addCleanup(profile.stop)
         self.lookup = lookup.start()
         self.addCleanup(lookup.stop)
 
@@ -35,15 +44,120 @@ class WorkerTests(unittest.TestCase):
         c.engine.tick.assert_not_called()
         c.lock.close.assert_called_once()
 
-    def test_token_changed_during_startup_refuses_before_recovery(self):
+    def test_new_token_is_adopted_without_rebuilding_execution_state(self):
         c = self.components()
-        self.lookup.return_value = N(access_token="replacement-token")
+        self.lookup.side_effect = [
+            N(access_token="startup-token"),
+            N(access_token="new"),
+        ]
         stop = Event()
-        stop.set()
-        with patch("app.cli.run_strategy.build_components", return_value=c):
-            self.assertEqual(run_worker(TradingSettings(), stop), 2)
-        c.engine.recover.assert_not_called()
-        c.engine.tick.assert_not_called()
+        seen = []
+
+        def tick(_):
+            seen.append(c.client.configuration.access_token)
+            if len(seen) == 2:
+                stop.set()
+
+        c.engine.tick.side_effect = tick
+        with (
+            patch("app.cli.run_strategy.build_components", return_value=c) as build,
+            patch.object(stop, "wait"),
+        ):
+            self.assertEqual(run_worker(TradingSettings(), stop), 0)
+        self.assertEqual(seen, ["startup-token", "new"])
+        build.assert_called_once()
+        c.engine.recover.assert_called_once()
+
+    def test_busy_renewal_skips_iteration_without_submitting(self):
+        c = self.components()
+        self.credential_lock.return_value.acquire.side_effect = [False, True]
+        stop = Event()
+        c.engine.tick.side_effect = lambda _: stop.set()
+        with (
+            patch("app.cli.run_strategy.build_components", return_value=c),
+            patch.object(stop, "wait"),
+        ):
+            self.assertEqual(run_worker(TradingSettings(), stop), 0)
+        c.engine.tick.assert_called_once()
+        self.assertEqual(self.credential_lock.return_value.acquire.call_count, 2)
+
+    def test_missing_or_wrong_account_token_never_reaches_tick(self):
+        for token, profile in [
+            (None, N(user_id="paper")),
+            (N(access_token="new"), N(user_id="OTHER")),
+        ]:
+            with self.subTest(token=token):
+                c = self.components()
+                self.lookup.return_value = token
+                self.profile.return_value = profile
+                stop = Event()
+                with (
+                    patch("app.cli.run_strategy.build_components", return_value=c),
+                    patch.object(
+                        stop, "wait", side_effect=lambda _, event=stop: event.set()
+                    ),
+                ):
+                    self.assertEqual(run_worker(TradingSettings(), stop), 0)
+                c.engine.tick.assert_not_called()
+                self.assertEqual(c.client.configuration.access_token, "startup-token")
+
+    def test_startup_waits_for_renewal_without_process_restart(self):
+        c = self.components()
+        stop = Event()
+        c.engine.tick.side_effect = lambda _: stop.set()
+        with (
+            patch(
+                "app.cli.run_strategy.build_components",
+                side_effect=[RuntimeError("SECRET"), c],
+            ) as build,
+            patch.object(stop, "wait"),
+        ):
+            self.assertEqual(run_worker(TradingSettings(), stop), 0)
+        self.assertEqual(build.call_count, 2)
+        c.engine.tick.assert_called_once()
+
+    def test_failed_lease_cleanup_reacquires_and_reconciles_without_restart(self):
+        c = self.components()
+        stop = Event()
+        self.credential_lock.return_value.close.side_effect = [
+            RuntimeError("SECRET"),
+            None,
+        ]
+        calls = []
+
+        def tick(_):
+            calls.append(1)
+            if len(calls) == 2:
+                stop.set()
+
+        c.engine.tick.side_effect = tick
+        with (
+            patch("app.cli.run_strategy.build_components", return_value=c),
+            patch.object(stop, "wait"),
+        ):
+            self.assertEqual(run_worker(TradingSettings(), stop), 0)
+        self.assertEqual(c.engine.recover.call_count, 2)
+        self.assertEqual(len(calls), 2)
+
+    def test_startup_ownership_failure_disposes_candidate_and_retries(self):
+        failed = self.components()
+        failed.lock.acquire.side_effect = RuntimeError("SECRET")
+        ready = self.components()
+        stop = Event()
+        ready.engine.tick.side_effect = lambda _: stop.set()
+        with (
+            patch("app.cli.run_strategy.build_components", side_effect=[failed, ready]),
+            patch.object(
+                stop,
+                "wait",
+                side_effect=[None, AssertionError("startup did not recover")],
+            ),
+        ):
+            self.assertEqual(run_worker(TradingSettings(), stop), 0)
+        failed.lock.close.assert_called_once()
+        failed.broker.close.assert_called_once()
+        failed.engine.recover.assert_not_called()
+        ready.engine.tick.assert_called_once()
 
     def test_backoff_bounded_and_shutdown_disables_only_entries(self):
         c = self.components()

@@ -76,7 +76,7 @@ class DisconnectTests(unittest.TestCase):
         )
         self.delete.assert_called_once_with("app", "U1", "SECRET", environment="live")
         self.client.return_value.pool.join.assert_called_once()
-        self.assertEqual(self.lock.return_value.close.call_count, 2)
+        self.assertEqual(self.lock.return_value.close.call_count, 3)
 
     def test_csrf_failure_does_not_touch_broker(self):
         self.assertEqual(self.request("bad")[0], 403)
@@ -109,6 +109,12 @@ class DisconnectTests(unittest.TestCase):
         self.delete.assert_not_called()
         paper.close.assert_called_once()
         live.close.assert_called_once()
+
+    def test_credential_renewal_blocks_disconnect_before_revocation(self):
+        self.lock.return_value.acquire.side_effect = [True, True, False]
+        self.assertEqual(self.request()[0], 409)
+        self.api.assert_not_called()
+        self.delete.assert_not_called()
 
     def test_unresolved_live_exposure_blocks_disconnect(self):
         self.repo.return_value.list_unresolved.return_value = [object()]

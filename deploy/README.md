@@ -153,48 +153,47 @@ adding this command, then run an intentional initial connection:
 docker compose run --rm --no-deps web python -m app.cli.upstox_token --connect
 ```
 
-Compose includes a `token-scheduler` service. It renews saved connections at
-**08:30 IST Monday–Friday**, regardless of the host timezone. If started late,
-it catches up during 08:30–15:30 IST. After 15:30 it waits for the next weekday.
-Exchange holidays are not excluded; this service only retrieves credentials.
+Compose includes a `token-scheduler` service. It verifies saved connections at
+**08:30 IST every day**, including weekends, regardless of the host timezone.
+Expired tokens are replaced through PIN/TOTP. If started late, it catches up
+until 15:30 IST; after that it waits for the next day. Exchange holidays are not
+excluded.
 
-Build and start all services, including the strategy worker:
+Build and deploy the updated code once:
 
 ```bash
 docker compose up -d --build
-docker compose logs --tail 50 token-scheduler
+docker compose logs --tail 50 token-scheduler worker
 ```
 
 Compose reads `.env.production` by default. Put the TOTP values in that file,
-or deliberately select a different private file with `ORB_ENV_FILE`. Editing the
-local `.env` alone does not update production containers. Recreate the scheduler
-after changing credentials; an existing container retains its original environment.
+or select a different private file with `ORB_ENV_FILE`. Editing the local `.env`
+alone does not update production containers. Credential environment changes
+require container recreation; ordinary daily token renewal does not.
 
-No host cron entry is needed. Disable any previously installed renewal cron job
-to avoid duplicate scheduling. The scheduler attempts once per IST date while
-running, including failed or disconnected attempts. It does not retry uncertain
-issuance automatically that day. Restarting it inside the window runs another
-check; a valid saved token is reused rather than rotated. Do not repeatedly restart
-it after failures. Monitor its logs and resolve failures before starting a worker.
+No host cron entry is needed. Disable old renewal cron jobs to avoid duplicate
+scheduling. Renewal and worker iterations share an account-wide MySQL advisory
+lock. The scheduler waits briefly for a running iteration, then retries failures
+with backoff from 30 seconds to five minutes during the renewal window. Before
+issuing a token on any retry it verifies the saved token and requires a confirmed
+broker `401`. Network failures alone do not authorize rotation. Successful
+verification or renewal completes that date's scheduled work.
 
-The service never uses `--connect`: intentional first connection or reconnection
+The worker keeps its duplicate-worker lock continuously, but releases the
+credential lock between iterations. It adopts verified replacement credentials
+in the existing SDK client before its next iteration, retaining simulated orders
+and GTT state. On startup it waits for credentials to become available. No daily
+worker or container restart is needed. Renewal never places orders or changes
+trading mode or limits.
+
+The scheduler never uses `--connect`: intentional first connection or reconnection
 still uses the command above. A UI disconnect therefore remains disconnected.
-It refuses renewal while either strategy worker mode is running, and does not
-stop workers, cancel orders, or start trading. If a worker is left running
-overnight, renewal will fail rather than interrupt its use of the token.
+Disconnection requires workers to be stopped and also excludes concurrent token
+renewal. Invalid PIN/TOTP settings, broker outages or database outages can still
+prevent renewal; failures are logged without exposing credentials.
 
 To disable only automatic token renewal:
 
 ```bash
 docker compose stop token-scheduler
 ```
-
-Automatic worker restarts do not refresh broker credentials. The scheduler
-still refuses renewal while the worker holds its account lock; unattended daily
-credential handoff is not implemented. After exposure is resolved, stop the
-worker, renew credentials, then start it again after the dashboard confirms the
-expected account is connected. Do not stop a live worker solely to refresh a token while
-it is managing exposure. If an expired token prevents recovery of unresolved
-exposure, retrieve the fresh token with workers stopped, then explicitly restart
-the worker for reconciliation. This command can retrieve credentials in that
-situation; it does not clear or alter strategy exposure.

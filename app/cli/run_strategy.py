@@ -12,7 +12,7 @@ import upstox_client as sdk
 from app.core.trading import TradingSettings, load_trading_settings
 from app.repositories.strategy import StrategyRepository
 from app.repositories.tokens import get_token
-from app.repositories.worker_lock import WorkerLock
+from app.repositories.worker_lock import ExecutionOwnership, WorkerLock
 from app.services.gtt_broker import GttBroker
 from app.services.paper_broker import PaperBroker
 from app.services.paper_gtt import PaperGttBroker
@@ -84,64 +84,108 @@ def build_components(settings: TradingSettings) -> Components:
         raise
 
 
+def refresh_worker_token(components: Components, settings: TradingSettings) -> None:
+    """Adopt verified credentials in place; preserve simulated and pending orders."""
+    token = get_token(settings.client_id, settings.user_id)
+    if token is None:
+        raise ValueError("Selected broker account is disconnected")
+    configuration = components.client.configuration
+    if token.access_token == configuration.access_token:
+        return
+    previous = configuration.access_token
+    configuration.access_token = token.access_token
+    try:
+        profile = sdk_data(sdk.UserApi(components.client).get_profile, "2.0")
+        if profile.user_id != settings.user_id:
+            raise ValueError("Selected account does not match broker token")
+    except Exception:
+        configuration.access_token = previous
+        raise
+    logger.info("Strategy worker adopted verified broker credentials")
+
+
+def close_components(components: Components, settings: TradingSettings) -> None:
+    components.engine.stop_entries()
+    try:
+        components.lock.close()
+    finally:
+        try:
+            components.broker.close()
+        finally:
+            if settings.mode == "paper":
+                Broker(components.client).close()
+
+
 def run_worker(settings: TradingSettings, stop: Event, *, clock=None) -> int:
     clock = clock or (lambda: datetime.now(UTC))
     components = None
+    recovered = False
+    delay = settings.poll_seconds
     try:
-        components = build_components(settings)
-        if not components.lock.acquire():
-            logger.error("Strategy worker is already running for this account and mode")
-            return 2
-        components.lock.assert_owned()
-        # A renewal or disconnect may have completed between component creation
-        # and lock acquisition. Never recover or submit with stale credentials.
-        current_token = get_token(settings.client_id, settings.user_id)
-        if (
-            current_token is None
-            or current_token.access_token
-            != components.client.configuration.access_token
-        ):
-            raise ValueError(
-                "Broker credentials changed during startup; restart the worker"
-            )
-        components.engine.recover(clock())
-        delay = settings.poll_seconds
         while not stop.is_set():
+            credentials = WorkerLock(
+                settings.client_id, settings.user_id, "credentials"
+            )
             try:
-                components.lock.assert_owned()
-            except Exception:  # noqa: BLE001 -- fail closed without leaking broker/SQL secrets
-                logger.error("Strategy worker ownership lost; stopping submissions")
-                return 2
-            try:
+                # The scheduler can rotate only between complete iterations.
+                if not credentials.acquire():
+                    continue
+                if components is None:
+                    candidate = build_components(settings)
+                    try:
+                        if not candidate.lock.acquire():
+                            logger.error(
+                                "Strategy worker is already running for this account and mode"
+                            )
+                            return 2
+                        components = candidate
+                    finally:
+                        if components is None:
+                            close_components(candidate, settings)
+                try:
+                    components.lock.assert_owned()
+                except Exception:  # noqa: BLE001 -- never log database exceptions
+                    logger.error("Strategy worker ownership lost; stopping submissions")
+                    return 2
+                components.engine.ownership = ExecutionOwnership(
+                    components.lock, credentials
+                )
+                components.engine.ownership.assert_owned()
+                refresh_worker_token(components, settings)
+                if not recovered:
+                    components.engine.recover(clock())
+                    recovered = True
                 components.engine.tick(clock())
                 delay = settings.poll_seconds
-            except Exception:  # noqa: BLE001 -- fail closed without leaking broker/SQL secrets
+            except Exception:  # noqa: BLE001 -- broker/SQL errors can contain secrets
                 logger.error(
-                    "Strategy iteration unavailable; persisted exposure requires reconciliation"
+                    "Strategy iteration unavailable; waiting for broker credentials or data. "
+                    "Any unresolved orders remain subject to reconciliation."
                 )
                 delay = min(30, max(settings.poll_seconds, delay * 2))
-            stop.wait(delay)
+            finally:
+                try:
+                    credentials.close()
+                except Exception:  # noqa: BLE001 -- discard lease and reconcile under a fresh one
+                    logger.error(
+                        "Credential lease cleanup unavailable; reacquiring before reconciliation"
+                    )
+                    recovered = False
+                    delay = min(30, max(settings.poll_seconds, delay * 2))
+                if not stop.is_set():
+                    stop.wait(delay)
         return 0
-    except Exception:  # noqa: BLE001 -- fail closed without leaking broker/SQL secrets
-        logger.error(
-            "Strategy worker startup failed; check account, configuration, and migrated database"
-        )
-        return 2
     finally:
         if components is not None:
-            components.engine.stop_entries()
             logger.info(
                 "Worker stopping; any remaining NRML exposure needs a running worker or manual management"
             )
             try:
-                components.lock.close()
-            finally:
-                components.broker.close()
-                if (
-                    settings.mode == "paper"
-                    and getattr(components, "client", None) is not None
-                ):
-                    Broker(components.client).close()
+                close_components(components, settings)
+            except Exception:  # noqa: BLE001 -- never expose broker or database errors
+                logger.error(
+                    "Worker resource cleanup unavailable; check broker and database availability"
+                )
 
 
 def main() -> int:
