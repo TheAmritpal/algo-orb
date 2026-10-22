@@ -1,0 +1,16 @@
+{
+  "mcp": {
+    "mysql": {
+      "type": "local",
+      "command": ["npx", "-y", "@benborla29/mcp-server-mysql"],
+      "environment": {
+        "MYSQL_HOST": "127.0.0.1",
+        "MYSQL_PORT": "3306",
+        "MYSQL_USER": "rev",
+        "MYSQL_PASS": "-DH09zG[KPQ$XT*V",
+        "MYSQL_DB": "algo_orb"
+      },
+      "enabled": true
+    }
+  }
+}

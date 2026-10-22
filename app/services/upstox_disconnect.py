@@ -21,12 +21,13 @@ def disconnect(user_id: str) -> None:
         with ExitStack() as stack:
             # Market-data paper workers use the live token too. Keep both modes
             # excluded until revocation and the conditional delete finish.
-            for mode in ("paper", "live"):
+            for mode in ("paper", "live", "credentials"):
                 lock = WorkerLock(settings["client_id"], user_id, mode)
                 stack.callback(lock.close)
                 if not lock.acquire():
                     raise HTTPException(
-                        409, "Stop the strategy worker before disconnecting Upstox."
+                        409,
+                        "Stop the strategy worker and wait for credential renewal before disconnecting Upstox.",
                     )
             if StrategyRepository().list_unresolved(
                 settings["client_id"], user_id, "live"

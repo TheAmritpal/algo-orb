@@ -17,7 +17,7 @@ def main(argv=None) -> int:
         result = retrieve_token(connect=args.connect)
     except (Exception, KeyboardInterrupt):  # noqa: BLE001 -- never print broker/DB exceptions or secrets
         print(
-            "Token retrieval failed. Check PIN/TOTP configuration, system clock, stopped workers, broker and MySQL availability. A previous token may have been revoked; no automatic retry was made."
+            "Token retrieval failed. Check PIN/TOTP configuration, system clock, credential-operation availability, broker and MySQL availability. A previous token may have been revoked; no automatic retry was made."
         )
         return 2
     messages = {

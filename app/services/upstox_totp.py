@@ -102,22 +102,19 @@ def retrieve_token(*, connect: bool = False, now: float | None = None) -> str:
     """Renew saved credentials; initial connection requires explicit opt-in.
 
     Never starts trading. Only a confirmed 401 on an existing token permits
-    rotation; temporary broker failures do not cause repeated token issuance.
+    rotation; each later attempt verifies the saved token before issuing another.
     """
     client = None
     try:
         install_access_filter()
         settings = load_settings()
         with ExitStack() as stack:
-            locks = []
-            for mode in ("paper", "live"):
-                lock = WorkerLock(settings.client_id, settings.user_id, mode)
-                stack.callback(lock.close)
-                if not lock.acquire():
-                    raise TokenRetrievalError(
-                        "Stop strategy workers before retrieving a token."
-                    )
-                locks.append(lock)
+            lock = WorkerLock(settings.client_id, settings.user_id, "credentials")
+            stack.callback(lock.close)
+            if not lock.acquire(timeout=3):
+                raise TokenRetrievalError(
+                    "Credential operation in progress; retry later."
+                )
             existing = get_token(
                 settings.client_id, settings.user_id, environment="live"
             )
@@ -135,8 +132,7 @@ def retrieve_token(*, connect: bool = False, now: float | None = None) -> str:
             client.rest_client.pool_manager.connection_pool_kw["retries"] = False
             if existing is not None and _valid_profile(client, settings.user_id):
                 return "valid"
-            for lock in locks:
-                lock.assert_owned()
+            lock.assert_owned()
             response = client.call_api(
                 "/v2/totp-login/authorization/token",
                 "POST",
@@ -170,8 +166,7 @@ def retrieve_token(*, connect: bool = False, now: float | None = None) -> str:
             client.configuration.access_token = token
             if not _valid_profile(client, settings.user_id):
                 raise TokenRetrievalError("Upstox did not accept the new token.")
-            for lock in locks:
-                lock.assert_owned()
+            lock.assert_owned()
             save_token(settings.client_id, settings.user_id, token, environment="live")
             return "saved"
     except TokenRetrievalError:
@@ -180,7 +175,7 @@ def retrieve_token(*, connect: bool = False, now: float | None = None) -> str:
         # A request may have issued a token even if its response or DB commit
         # failed. No automatic retry, and never expose exceptions with secrets.
         raise TokenRetrievalError(
-            "Token retrieval failed. Check configuration, clock, broker and database availability. A prior token may have been revoked; no automatic retry was made."
+            "Token retrieval failed. Check configuration, clock, broker and database availability. A prior token may have been revoked; this call was not retried."
         ) from None
     finally:
         if client is not None:

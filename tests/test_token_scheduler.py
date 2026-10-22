@@ -5,7 +5,7 @@ from unittest.mock import Mock, patch
 
 
 class TokenScheduleTests(unittest.TestCase):
-    def test_ist_window_and_weekdays_are_independent_of_host_timezone(self):
+    def test_daily_ist_window_is_independent_of_host_timezone(self):
         from app.cli.token_scheduler import renewal_due
 
         for now, expected in [
@@ -14,8 +14,8 @@ class TokenScheduleTests(unittest.TestCase):
             (datetime(2026, 10, 20, 4, 0, tzinfo=UTC), True),  # late startup
             (datetime(2026, 10, 20, 9, 59, tzinfo=UTC), True),
             (datetime(2026, 10, 20, 10, 0, tzinfo=UTC), False),  # 15:30 IST
-            (datetime(2026, 10, 24, 3, 0, tzinfo=UTC), False),  # Saturday
-            (datetime(2026, 10, 25, 3, 0, tzinfo=UTC), False),  # Sunday
+            (datetime(2026, 10, 24, 3, 0, tzinfo=UTC), True),  # Saturday
+            (datetime(2026, 10, 25, 3, 0, tzinfo=UTC), True),  # Sunday
         ]:
             with self.subTest(now=now):
                 self.assertEqual(renewal_due(now, None), expected)
@@ -50,17 +50,24 @@ class TokenScheduleTests(unittest.TestCase):
             self.assertEqual(call.args, ())
             self.assertEqual(call.kwargs, {})  # Never --connect or trading start.
 
-    def test_failure_is_not_retried_that_day_and_does_not_log_secrets(self):
+    def test_failure_retries_with_backoff_and_does_not_log_secrets(self):
         from app.cli.token_scheduler import run_scheduler
 
         stop = Event()
         renew = Mock(side_effect=RuntimeError("SECRET"))
-        clock = Mock(return_value=datetime(2026, 10, 20, 3, 0, tzinfo=UTC))
+        clock = Mock(
+            side_effect=[
+                datetime(2026, 10, 20, 3, 0, tzinfo=UTC),
+                datetime(2026, 10, 20, 3, 0, 30, tzinfo=UTC),
+                datetime(2026, 10, 20, 3, 1, tzinfo=UTC),
+                datetime(2026, 10, 20, 3, 1, 30, tzinfo=UTC),
+            ]
+        )
         count = []
 
         def wait(seconds):
             count.append(seconds)
-            if len(count) == 2:
+            if len(count) == 4:
                 stop.set()
 
         with (
@@ -68,9 +75,9 @@ class TokenScheduleTests(unittest.TestCase):
             self.assertLogs("app.cli.token_scheduler") as logs,
         ):
             self.assertEqual(run_scheduler(stop, clock=clock, renew=renew), 0)
-        self.assertEqual(renew.call_count, 1)
+        self.assertEqual(renew.call_count, 3)
         self.assertNotIn("SECRET", "\n".join(logs.output))
-        self.assertIn("failed", "\n".join(logs.output).lower())
+        self.assertIn("retrying", "\n".join(logs.output).lower())
 
     def test_disconnected_outcome_is_logged_and_not_reconnected(self):
         from app.cli.token_scheduler import run_scheduler

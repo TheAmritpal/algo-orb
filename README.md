@@ -601,7 +601,7 @@ Intentional first connection (or reconnection after Disconnect):
 uv run python -m app.cli.upstox_token --connect
 ```
 
-Daily renewal of a saved connection, before starting the strategy worker:
+Manual renewal of a saved connection (also safe while a worker is running):
 
 ```bash
 uv run python -m app.cli.upstox_token
@@ -610,28 +610,36 @@ uv run python -m app.cli.upstox_token
 A valid saved token is reused without issuing another. Only a confirmed broker
 `401` permits replacing a saved token; temporary failures do not trigger rotation.
 If no token is saved, the default command skips rather than undoing an intentional
-disconnect. `--connect` explicitly allows initial connection. Both modes refuse
-while a paper or live worker holds its account lock. The command verifies the
-new account through the profile API and commits to `upstox_tokens`; it never
+disconnect. `--connect` explicitly allows initial connection. Renewal and each
+worker iteration share an account-wide credential lock, so rotation waits for
+an in-flight iteration to finish. The command verifies the new account through the profile API and commits to `upstox_tokens`; it never
 starts a worker, places orders, or prints credentials. Exit code 0 means saved,
 already valid, or disconnected/skipped; exit code 2 means failure. Treat a skipped
 renewal as disconnected, not permission to trade.
 
 Issuance can revoke the old token even if the response, verification, or MySQL
-commit subsequently fails. There are no automatic retries. On failure, inspect
-configuration and broker connectivity before rerunning. SDK response-body debug
-logs are redacted. Broker tests use mocks; no real token was issued during tests.
-No schema migration or new dependency is required for this command.
+commit subsequently fails. The command never retries issuance within one call.
+The scheduler retries failures with exponential backoff from 30 seconds to five
+minutes; each attempt checks the saved token first and only a confirmed `401`
+permits another issuance. SDK response-body debug logs are redacted. Broker tests
+use mocks; no real token is issued during tests. No schema migration or new
+dependency is required.
 
-Compose includes `token-scheduler` for automatic weekday renewal at **08:30 IST**
-(with late-start catch-up until 15:30 IST). It uses the default renewal command,
-so disconnected accounts stay disconnected. Failures are logged without an
-automatic retry that day while the process remains running. It does not start
-trading. Start all Compose services, including the strategy worker, with
-`docker compose up -d --build`. The worker starts automatically in the configured
-paper or live mode and uses `restart: unless-stopped`; live execution still
-requires explicit enablement and configured trading limits. Automatic restarts
-do not refresh tokens: renewal refuses while a worker holds the account lock,
-so daily credential handoff still requires coordinated worker management.
-Compose uses `.env.production` by default, so configure the TOTP values there
-for production. See [deploy/README.md](deploy/README.md) for setup and monitoring.
+Compose includes `token-scheduler` for automatic **daily renewal at 08:30 IST**,
+including weekends (with late-start catch-up until 15:30 IST). Disconnected
+accounts stay disconnected. Successful verification or renewal completes that
+date's scheduled work; temporary failures retry during the window.
+
+The worker stays running overnight. Before each iteration it acquires the same
+credential lock, reloads its selected account's token from MySQL, verifies any
+replacement through the profile API and updates its existing SDK client. Paper
+orders, GTT state, pending intents and trading limits are preserved. Startup
+waits for usable credentials without requiring a process restart. Missing or
+unverified credentials prevent strategy iterations. A lost worker lock still
+stops submissions to prevent duplicate workers.
+
+Deploy this code once with `docker compose up -d --build`; subsequent daily
+renewals require no worker or container restarts. Live execution still requires
+explicit enablement and configured trading limits. Compose uses `.env.production`
+by default, so configure the TOTP values there for production. See
+[deploy/README.md](deploy/README.md) for setup and monitoring.
