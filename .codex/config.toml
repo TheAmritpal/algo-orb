@@ -4,7 +4,7 @@ args = ["-y", "@benborla29/mcp-server-mysql"]
 
 [mcp_servers.mysql.env]
 MYSQL_HOST = "127.0.0.1"
-MYSQL_PORT = "3306"
+MYSQL_PORT = "3307"
 MYSQL_USER = "rev"
 MYSQL_PASS = "-DH09zG[KPQ*V"
 MYSQL_DB = "algo_orb"
