@@ -126,7 +126,91 @@ not close real NRML exposure. Paper success does not verify live GTT protection.
 Review the operational readiness documents before explicitly configuring live
 execution. Never start a second worker during unresolved exposure.
 
-## Updating
+## Live trading activation
+
+The strategy uses two contract lots, a stop five premium points below entry,
+and a target ten points above entry. With a 500-unit lot, this is 1000 units:
+5000 planned loss and 10000 target profit, before charges and execution losses.
+Lot sizes come from broker metadata; confirm them for the selected contract.
+
+Use this sequence on the production server, outside an active position:
+
+1. Back up the server's private `.env.production` outside the checkout before
+   updating files. Preserve its credentials, account pin and database settings.
+   Do not replace it with local development credentials or the example file.
+2. Stop the worker with `docker compose stop worker`. Check Upstox positions,
+   pending orders and GTTs, plus application reconciliation state. Resolve any
+   exposure before proceeding; stopping a worker does not close positions.
+3. Verify the selected stock-option contract is eligible for fresh orders under
+   Upstox's expiry-period rules, including product D and any delivery margin.
+   The current selector chooses the nearest monthly expiry. For 26 October
+   2026 that is 27 October; do not assume that this contract is eligible.
+4. Confirm the server's outbound static IP is registered in Upstox and the
+   app's applicable Algo Name/header requirements are met. Read-only history
+   access does not validate mutation access. The application currently has no
+   explicit X-Algo-Name configuration; resolve this for the selected app before
+   enabling live orders.
+5. Fund the account for premium times quantity, charges and applicable broker
+   margin. Retain a loss reserve. The planned-loss cap is not the entry funding
+   requirement. Verify the account balance rather than relying on a past quote.
+6. Confirm these values in the server's `.env.production`:
+
+   ```dotenv
+   ORB_EXECUTION_BACKEND=gtt
+   ORB_MAX_PLANNED_LOSS=5000
+   ORB_MAX_SPREAD=1
+   ORB_MAX_SLIPPAGE=1
+   ORB_QUOTE_MAX_AGE_SECONDS=5
+   ORB_POLL_SECONDS=2
+   ```
+
+   `ORB_BROKER_USER_ID` must pin the intended live account. Set premium and
+   notional caps explicitly; `none` intentionally disables those two caps.
+   Existing private files retain `none`. Keep
+   `ORB_PROTECTIVE_STOP_VERIFIED=false` until account-specific live GTT entry,
+   stop/target protection, sibling cancellation and recovery have been verified.
+   Only after that verification set it to `true` on the server. Successful
+   paper runs, profile checks and GTT read access do not establish protection.
+7. Build and apply migrations, then recreate only web and token-scheduler:
+
+   ```bash
+   docker compose build web
+   docker compose run --rm --no-deps web alembic upgrade head
+   docker compose up -d --no-deps --force-recreate web token-scheduler
+   curl --fail http://127.0.0.1:3000/health
+   ```
+
+   Do not run an unqualified `docker compose up -d` at this stage; that also
+   starts the worker. No admin synchronization is needed for a routine update.
+8. Log in to the dashboard. Under Trading settings select **Live**, check
+   **Enable live trading with real money**, and save. These settings are in MySQL;
+   editing an environment file does not change them. Verify the saved values.
+9. Before the session verify token renewal (scheduled 08:30 IST), account,
+   funds and broker access. Start exactly one worker only when all checks above
+   pass:
+
+   ```bash
+   docker compose up -d --no-deps --force-recreate worker
+   docker compose logs --tail 100 worker
+   ```
+
+10. Supervise fresh quotes and the 09:15 opening-range data, then entry fills
+    and protective GTT legs. Monitor through the 15:25 exit and reconciliation;
+    confirm zero remaining exposure, pending orders and active exit triggers.
+    Do not retry an uncertain order manually before checking its broker status.
+
+For an emergency, stop the worker to halt further strategy submissions, then
+manage and reconcile positions/orders/GTTs directly in Upstox. Stopping the
+worker or disabling live settings does not close an existing position. To
+return to paper, stop the worker, reconcile live exposure, save Paper with live
+enablement unchecked in the dashboard, and recreate the worker.
+
+Do not deploy confidential `.env` changes through a public repository. These
+files are currently tracked in this checkout despite the older setup text;
+keep credentials out of commits and arrange repository-history remediation
+and credential rotation separately if they have already been shared.
+
+## Routine updates
 
 ```bash
 docker compose build web
