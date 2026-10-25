@@ -4,6 +4,7 @@ from datetime import time
 from decimal import Decimal
 from uuid import uuid4
 
+from app.services.trading_broker import EntryValidationError, validate_entry
 from app.strategies.gtt_models import LEG_TERMINAL
 from app.strategies.models import TERMINAL, OrderRequest
 from app.strategies.rules import IST, premium_levels
@@ -15,16 +16,21 @@ class GttExecution:
         self.broker = broker
         self.repository = repository
 
-    def enter(self, run, request, now):
+    def enter(self, run, request, now, *, previous=None):
         engine = self.engine
         current = engine.clock() if engine.clock else now
         if (
             current.astimezone(IST).time() > time(15)
             or (current - now).total_seconds() > engine.settings.quote_max_age_seconds
+            or (previous is not None and not self._retry_window(run, previous, current))
         ):
             return engine._state(run, "skipped", message="GTT entry pricing expired")
         stop, target = premium_levels(request.price, run.contract.tick_size)
-        record = self.repository.reserve(run, request, stop, target)
+        record = (
+            self.repository.reserve_retry(run, previous, request, stop, target)
+            if previous is not None
+            else self.repository.reserve(run, request, stop, target)
+        )
         if record is None:
             return engine.repository.get_run(run.id)
         engine.ownership.assert_owned()
@@ -34,6 +40,7 @@ class GttExecution:
             or not 0
             <= (current - now).total_seconds()
             <= engine.settings.quote_max_age_seconds
+            or (previous is not None and not self._retry_window(run, previous, current))
         ):
             self.repository.mutation_result(record.pending["id"], "not_submitted")
             return engine._state(
@@ -45,6 +52,61 @@ class GttExecution:
         broker_id = self.broker.place(record)
         self.repository.acknowledge(run.id, broker_id)
         return engine.repository.get_run(run.id)
+
+    def _retry_window(self, run, record, now):
+        return (
+            self.engine.entries_enabled
+            and run.state != "reconciliation_required"
+            and record.attempt < 3
+            and not record.retry_blocked
+            and now.astimezone(IST).date() == run.key.exchange_date
+            and now.astimezone(IST).time() < time(15)
+        )
+
+    def _retry_entry(self, run, record, now):
+        engine = self.engine
+        try:
+            if run.contract.expiry <= now.astimezone(IST).date():
+                raise EntryValidationError("expiry_day")
+            if not engine.market.snapshot(now, run.contract).normal_session:
+                raise EntryValidationError("market_closed")
+            if not engine.broker.supports_protective_stop(run.contract):
+                raise EntryValidationError("protection_unverified")
+            if any(
+                p.instrument == run.contract.instrument_key and p.quantity
+                for p in engine.broker.positions()
+            ):
+                raise EntryValidationError("contract_already_held")
+            quote = engine.market.quote(run.contract.instrument_key)
+            funds = engine.broker.available_funds()
+            received_at = engine.clock() if engine.clock else now
+            price = validate_entry(
+                run.contract, quote, received_at, engine.settings, funds
+            )
+        except EntryValidationError as exc:
+            return engine._state(
+                run, "rejected", message="GTT retry blocked: " + exc.reason
+            )
+        if not self._retry_window(run, record, received_at):
+            return engine._state(
+                run, "rejected", message="GTT entry retry window ended"
+            )
+        engine._position_matches(run)
+        engine.repository.append_event(
+            run.id,
+            "entry_retry",
+            {
+                "reason": "unfilled_timeout",
+                "price": price,
+                "quantity": run.requested_quantity,
+            },
+        )
+        return self.enter(
+            run,
+            engine._request(run, "BUY", run.requested_quantity, price),
+            quote.timestamp,
+            previous=record,
+        )
 
     def _sync(self, run, record):
         engine = self.engine
@@ -173,6 +235,18 @@ class GttExecution:
             run, snapshot = self._cancel_child(run, record, exits[0])
             engine._position_matches(run)
         if not run.remaining_quantity:
+            current = engine.clock() if engine.clock else now
+            if (
+                not run.filled_quantity
+                and record.retry_requested
+                and self._retry_window(run, record, current)
+                and all(leg.status == "CANCELLED" for leg in snapshot.legs)
+                and all(
+                    i.status == "cancelled" and not i.fills
+                    for i in engine._intents(run)
+                )
+            ):
+                return self._retry_entry(run, record, current)
             return engine._state(
                 run,
                 "closed" if run.filled_quantity else "rejected",
@@ -184,6 +258,9 @@ class GttExecution:
         engine = self.engine
         try:
             record = self.repository.get(run.id)
+            if run.state == "reconciliation_required" and not record.retry_blocked:
+                self.repository.block_retries(run.id)
+                record = self.repository.get(run.id)
             if not record.broker_id:
                 raise RuntimeError("GTT creation identity unknown")
             if run.key.mode == "paper":
@@ -229,6 +306,17 @@ class GttExecution:
                 or any_sell
                 or snapshot.terminal
             ):
+                if (
+                    timeout
+                    and not failure
+                    and not partial
+                    and not any_sell
+                    and not run.filled_quantity
+                    and not record.retry_requested
+                    and self._retry_window(run, record, now)
+                ):
+                    self.repository.authorize_retry(run, record)
+                    record = self.repository.get(run.id)
                 reason = "time" if deadline else "GTT partial fill or terminal leg"
                 return self._finish_or_exit(run, record, snapshot, now, reason)
             if not run.filled_quantity:
@@ -273,4 +361,7 @@ class GttExecution:
                 message="Upstox GTT monitors target and stop-loss",
             )
         except Exception:  # noqa: BLE001 -- never expose broker/SQL exception text
-            engine._fail(run, "GTT outcome uncertain; reconciliation required")
+            try:
+                self.repository.block_retries(run.id)
+            finally:
+                engine._fail(run, "GTT outcome uncertain; reconciliation required")

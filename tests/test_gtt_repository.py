@@ -11,6 +11,16 @@ from app.strategies.rules import premium_levels
 
 
 class GttDomainTests(unittest.TestCase):
+    def test_retry_migration_preserves_old_journals_and_adds_attempt_scope(self):
+        out = io.StringIO()
+        command.upgrade(Config("alembic.ini", output_buffer=out), "head", sql=True)
+        sql = out.getvalue()
+        self.assertIn("CREATE TABLE strategy_gtt_attempt_history", sql)
+        self.assertIn("ADD COLUMN attempt", sql)
+        self.assertIn("ADD COLUMN retry_requested", sql)
+        self.assertIn("PRIMARY KEY (run_id, attempt, strategy)", sql)
+        self.assertNotIn("DROP TABLE strategy_gtt_mutations", sql)
+
     def test_stop_is_five_and_target_is_ten_points_from_entry(self):
         self.assertEqual(
             premium_levels(D("101.50"), D("0.05")), (D("96.50"), D("111.50"))

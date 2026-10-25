@@ -34,6 +34,7 @@ class MySQLStrategyHistoryTests(unittest.TestCase):
                 )
                 for (run_id,) in c.fetchall():
                     for table in (
+                        "strategy_gtt_attempt_history",
                         "strategy_signals",
                         "strategy_gtt_legs",
                         "strategy_gtt_mutations",

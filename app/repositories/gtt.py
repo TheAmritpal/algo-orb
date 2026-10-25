@@ -15,7 +15,7 @@ from app.repositories.strategy import (
     utc,
 )
 from app.strategies.gtt_models import GttLeg, GttRecord, GttSnapshot
-from app.strategies.models import OrderRequest
+from app.strategies.models import TERMINAL, OrderRequest
 
 
 def record_from_row(row, pending=None):
@@ -41,24 +41,114 @@ def record_from_row(row, pending=None):
         row["broker_id"],
         snapshot,
         pending,
+        row.get("attempt", 1),
+        bool(row.get("retry_requested", False)),
+        bool(row.get("retry_blocked", False)),
     )
 
 
 class GttRepository:
+    def _get(self, c, run_id):
+        c.execute("SELECT * FROM strategy_gtts WHERE run_id=%s", (run_id,))
+        row = c.fetchone()
+        if row is None:
+            raise ValueError("Missing GTT reservation")
+        c.execute(
+            "SELECT id,kind,fields FROM strategy_gtt_mutations WHERE run_id=%s AND attempt=%s AND status='pending' ORDER BY id",
+            (run_id, row["attempt"]),
+        )
+        pending = c.fetchall()
+        if len(pending) > 1:
+            raise ValueError("Conflicting GTT mutations")
+        return record_from_row(row, pending[0] if pending else None)
+
     def get(self, run_id):
         with transaction() as c:
-            c.execute("SELECT * FROM strategy_gtts WHERE run_id=%s", (run_id,))
-            row = c.fetchone()
-            if row is None:
-                raise ValueError("Missing GTT reservation")
+            return self._get(c, run_id)
+
+    def block_retries(self, run_id):
+        """Uncertainty is a durable disqualification, even after reads recover."""
+        with transaction() as c:
+            _read(c, run_id, True)
             c.execute(
-                "SELECT id,kind,fields FROM strategy_gtt_mutations WHERE run_id=%s AND status='pending' ORDER BY id",
-                (run_id,),
+                "UPDATE strategy_gtts SET retry_blocked=1 WHERE run_id=%s", (run_id,)
             )
-            pending = c.fetchall()
-            if len(pending) > 1:
-                raise ValueError("Conflicting GTT mutations")
-            return record_from_row(row, pending[0] if pending else None)
+
+    def authorize_retry(self, run, record):
+        """Persist timeout intent before cancellation so recovery retains its cause."""
+        with transaction() as c:
+            current = _read(c, run.id, True)
+            saved = self._get(c, run.id)
+            if (
+                current.version != run.version
+                or current.state == "reconciliation_required"
+                or current.filled_quantity
+                or current.remaining_quantity
+                or saved.attempt != record.attempt
+                or saved.attempt >= 3
+                or saved.pending
+                or saved.retry_blocked
+                or not saved.broker_id
+            ):
+                raise ValueError("GTT retry authorization unavailable")
+            c.execute(
+                "UPDATE strategy_gtts SET retry_requested=1 WHERE run_id=%s", (run.id,)
+            )
+
+    def reserve_retry(self, run, previous, request, stop, target):
+        """Archive the resolved parent and reserve its successor in one transaction."""
+        with transaction() as c:
+            current = _read(c, run.id, True)
+            saved = self._get(c, run.id)
+            if current.version != run.version or saved.attempt != previous.attempt:
+                return None
+            intents = _intents(c, run.id)
+            if (
+                not saved.retry_requested
+                or saved.attempt >= 3
+                or saved.pending
+                or saved.retry_blocked
+                or current.state != "entry_pending"
+                or current.filled_quantity
+                or current.remaining_quantity
+                or not saved.snapshot
+                or not saved.snapshot.terminal
+                or not saved.broker_id
+                or any(leg.status != "CANCELLED" for leg in saved.snapshot.legs)
+                or any(
+                    i.status not in TERMINAL or i.status == "rejected" or i.fills
+                    for i in intents
+                )
+                or request.instrument != current.contract.instrument_key
+                or request.quantity != current.requested_quantity
+                or request.side != "BUY"
+                or not stop < request.price < target
+            ):
+                raise ValueError("Prior GTT entry not safe to retry")
+            c.execute(
+                "INSERT INTO strategy_gtt_attempt_history (run_id,attempt,request,stop,target,created_at,broker_id,snapshot) SELECT run_id,attempt,request,stop,target,created_at,broker_id,snapshot FROM strategy_gtts WHERE run_id=%s",
+                (run.id,),
+            )
+            now = datetime.now(UTC)
+            attempt = saved.attempt + 1
+            c.execute(
+                "UPDATE strategy_gtts SET attempt=%s,retry_requested=0,request=%s,stop=%s,target=%s,created_at=%s,broker_id=NULL,snapshot=NULL WHERE run_id=%s",
+                (attempt, dump(asdict(request)), stop, target, utc(now), run.id),
+            )
+            c.execute(
+                "INSERT INTO strategy_gtt_mutations (run_id,attempt,kind,fields,created_at) VALUES (%s,%s,'create',%s,%s)",
+                (
+                    run.id,
+                    attempt,
+                    dump({"request": asdict(request), "stop": stop, "target": target}),
+                    utc(now),
+                ),
+            )
+            record = GttRecord(run.id, request, stop, target, now, attempt=attempt)
+            record.pending = {"id": c.lastrowid, "kind": "create", "fields": {}}
+            current.stop, current.target = stop, target
+            _save(c, current, current.version)
+            return record
 
     def reserve(self, run, request, stop, target):
         now = datetime.now(UTC)
@@ -112,8 +202,8 @@ class GttRepository:
                 (broker_id, run_id),
             )
             c.execute(
-                "UPDATE strategy_gtt_mutations SET status='confirmed' WHERE run_id=%s AND kind='create' AND status='pending'",
-                (run_id,),
+                "UPDATE strategy_gtt_mutations SET status='confirmed' WHERE run_id=%s AND attempt=(SELECT attempt FROM strategy_gtts WHERE run_id=%s) AND kind='create' AND status='pending'",
+                (run_id, run_id),
             )
 
     def mutation(self, run_id, kind, fields):
@@ -122,8 +212,8 @@ class GttRepository:
         with transaction() as c:
             _read(c, run_id, True)
             c.execute(
-                "SELECT id,kind FROM strategy_gtt_mutations WHERE run_id=%s AND status='pending' LIMIT 1",
-                (run_id,),
+                "SELECT id,kind FROM strategy_gtt_mutations WHERE run_id=%s AND attempt=(SELECT attempt FROM strategy_gtts WHERE run_id=%s) AND status='pending' LIMIT 1",
+                (run_id, run_id),
             )
             pending = c.fetchone()
             if pending:
@@ -136,8 +226,8 @@ class GttRepository:
                     (pending["id"],),
                 )
             c.execute(
-                "INSERT INTO strategy_gtt_mutations (run_id,kind,fields,created_at) VALUES (%s,%s,%s,%s)",
-                (run_id, kind, dump(fields), utc(datetime.now(UTC))),
+                "INSERT INTO strategy_gtt_mutations (run_id,attempt,kind,fields,created_at) SELECT run_id,attempt,%s,%s,%s FROM strategy_gtts WHERE run_id=%s",
+                (kind, dump(fields), utc(datetime.now(UTC)), run_id),
             )
             return c.lastrowid
 
@@ -181,8 +271,8 @@ class GttRepository:
             ):
                 raise ValueError("GTT child does not match reserved run")
             c.execute(
-                "SELECT order_id,intent_id FROM strategy_gtt_legs WHERE run_id=%s AND strategy=%s",
-                (run_id, leg.strategy),
+                "SELECT order_id,intent_id FROM strategy_gtt_legs WHERE run_id=%s AND attempt=(SELECT attempt FROM strategy_gtts WHERE run_id=%s) AND strategy=%s",
+                (run_id, run_id, leg.strategy),
             )
             existing = c.fetchone()
             if existing:
@@ -208,7 +298,7 @@ class GttRepository:
             )
             intent_id = c.lastrowid
             c.execute(
-                "INSERT INTO strategy_gtt_legs (run_id,strategy,order_id,intent_id) VALUES (%s,%s,%s,%s)",
-                (run_id, leg.strategy, leg.order_id, intent_id),
+                "INSERT INTO strategy_gtt_legs (run_id,attempt,strategy,order_id,intent_id) SELECT run_id,attempt,%s,%s,%s FROM strategy_gtts WHERE run_id=%s",
+                (leg.strategy, leg.order_id, intent_id, run_id),
             )
             return next(i for i in _intents(c, run_id) if i.id == intent_id)

@@ -10,6 +10,8 @@ class MemoryGttRepository:
         self.records = {}
         self.mutations = {}
         self.children = {}
+        self.history = {}
+        self.clock = at
 
     def get(self, run_id):
         record = deepcopy(self.records[run_id])
@@ -17,7 +19,9 @@ class MemoryGttRepository:
             (
                 dict(m, id=id)
                 for id, m in self.mutations.items()
-                if m["run_id"] == run_id and m["status"] == "pending"
+                if m["run_id"] == run_id
+                and m["status"] == "pending"
+                and m.get("attempt", 1) == record.attempt
             ),
             None,
         )
@@ -52,8 +56,50 @@ class MemoryGttRepository:
     def acknowledge(self, run_id, broker_id):
         self.records[run_id].broker_id = broker_id
         for m in self.mutations.values():
-            if m["run_id"] == run_id and m["kind"] == "create":
+            if (
+                m["run_id"] == run_id
+                and m["kind"] == "create"
+                and m.get("attempt", 1) == self.records[run_id].attempt
+            ):
                 m["status"] = "confirmed"
+
+    def authorize_retry(self, run, record):
+        assert not run.filled_quantity and not run.remaining_quantity
+        assert record.attempt < 3 and not record.pending
+        self.records[run.id].retry_requested = True
+
+    def block_retries(self, run_id):
+        self.records[run_id].retry_blocked = True
+
+    def reserve_retry(self, run, previous, request, stop, target):
+        current = self.repository.get_run(run.id)
+        saved = self.get(run.id)
+        if current.version != run.version or saved.attempt != previous.attempt:
+            return None
+        assert (
+            saved.retry_requested
+            and saved.attempt < 3
+            and not saved.pending
+            and not saved.retry_blocked
+        )
+        assert not current.filled_quantity and not current.remaining_quantity
+        assert saved.snapshot.terminal
+        self.history[(run.id, saved.attempt)] = deepcopy(saved)
+        self.repository.transition(
+            run.id, run.version, "entry_pending", {"stop": stop, "target": target}
+        )
+        self.records[run.id] = GttRecord(
+            run.id, request, stop, target, self.clock(), attempt=saved.attempt + 1
+        )
+        id = len(self.mutations) + 1
+        self.mutations[id] = {
+            "run_id": run.id,
+            "attempt": saved.attempt + 1,
+            "kind": "create",
+            "fields": {},
+            "status": "pending",
+        }
+        return self.get(run.id)
 
     def mutation(self, run_id, kind, fields):
         pending = self.get(run_id).pending
@@ -63,6 +109,7 @@ class MemoryGttRepository:
         id = len(self.mutations) + 1
         self.mutations[id] = {
             "run_id": run_id,
+            "attempt": self.records[run_id].attempt,
             "kind": kind,
             "fields": fields,
             "status": "pending",
@@ -80,7 +127,7 @@ class MemoryGttRepository:
         self.records[run_id].target = target
 
     def attach_child(self, run_id, leg, request):
-        key = (run_id, leg.strategy)
+        key = (run_id, self.records[run_id].attempt, leg.strategy)
         if key not in self.children:
             i = self.repository._intent(
                 run_id,

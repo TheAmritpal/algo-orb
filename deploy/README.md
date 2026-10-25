@@ -128,6 +128,17 @@ execution. Never start a second worker during unresolved exposure.
 
 ## Live trading activation
 
+This version requires Alembic **0009**. Stop the worker before migration and
+keep it stopped until the new image and schema are both installed. GTT entry
+timeouts now allow two additional attempts, 30 seconds per attempt, on the same
+contract and original signal. Each retry requires confirmed zero-fill
+cancellation and zero exposure, a fresh quote and repeated risk checks.
+No new entry follows partial fills, rejection or an uncertain broker response;
+no retries start at/after 15:00 IST. Attempt budgets and audit history persist
+across restarts. The protection-verification and live-mode gates still apply.
+After retries have been recorded, schema downgrade is refused rather than
+discarding the attempt history; plan rollbacks with this constraint in mind.
+
 The strategy uses two contract lots, a stop five premium points below entry,
 and a target ten points above entry. With a 500-unit lot, this is 1000 units:
 5000 planned loss and 10000 target profit, before charges and execution losses.

@@ -653,3 +653,24 @@ renewals require no worker or container restarts. Live execution still requires
 explicit enablement and configured trading limits. Compose uses `.env.production`
 by default, so configure the TOTP values there for production. See
 [deploy/README.md](deploy/README.md) for setup and monitoring.
+
+### GTT entry retries
+
+An unfilled GTT entry times out after 30 seconds. The worker allows **two
+additional attempts (three total)** on the same contract and original signal,
+only after confirming that the previous parent and generated exchange orders
+are cancelled with zero fills and zero broker exposure. Every retry uses a new
+quote and repeats session, protection, funds and configured risk checks. Stop
+and target remain entry premium minus 5 / plus 10. Retries stop at 15:00 IST.
+
+Partial fills follow the existing cancel-and-flatten path, without another
+entry. Rejections and uncertain broker outcomes do not authorize a new entry.
+The attempt budget and timeout authorization survive restarts; an uncertain
+submission is reconciled rather than replayed. No retry follows a filled trade.
+Prior parents, snapshots, mutations and child orders remain in MySQL audit
+history. The active parent is in `strategy_gtts`; previous parents are in
+`strategy_gtt_attempt_history`, with child/mutation rows scoped by attempt.
+
+Stop the worker and apply Alembic migration **0009** before deploying this code.
+Do not reset a day's run or delete GTT journals to retry manually. Downgrading
+0009 after any retry has been used is refused to preserve historical evidence.

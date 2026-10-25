@@ -56,6 +56,9 @@ class GttRecord:
     broker_id: str | None = None
     snapshot: GttSnapshot | None = None
     pending: dict | None = field(default=None)
+    attempt: int = 1
+    retry_requested: bool = False
+    retry_blocked: bool = False
 
     def __post_init__(self):
         aware(self.created_at)

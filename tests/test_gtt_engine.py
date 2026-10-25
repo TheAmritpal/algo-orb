@@ -213,8 +213,9 @@ class GttExecutionTests(unittest.TestCase):
             self.repo.get_run(self.run.id).state, "reconciliation_required"
         )
 
-    def test_unfilled_entry_times_out_and_consumes_daily_allowance(self):
+    def test_unfilled_entry_times_out_without_retry_when_entries_stopped(self):
         self.enter()
+        self.engine.stop_entries()
         active = self.snapshot(fill=0)
         cancelled = replace(
             active, legs=tuple(replace(l, status="CANCELLED") for l in active.legs)
@@ -367,9 +368,7 @@ class GttIntegrationTests(unittest.TestCase):
         for direction in ("CE", "PE"):
             with self.subTest(direction=direction):
                 self.setup_engine(direction)
-                self.market.contract = replace(
-                    self.market.contract, expiry=at().date()
-                )
+                self.market.contract = replace(self.market.contract, expiry=at().date())
                 self.tick()
                 self.assertEqual(self.latest().state, "skipped")
                 self.assertFalse(self.latest().entry_reserved)
