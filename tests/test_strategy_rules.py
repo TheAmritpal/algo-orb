@@ -126,6 +126,47 @@ class RuleTests(unittest.TestCase):
         self.assertEqual(contract().quantity, 500)
         self.assertEqual(replace(contract(), lot_size=500).quantity, 1000)
 
+    def test_october_expiry_rolls_before_restricted_session(self):
+        for direction, strike in (("CE", "1480"), ("PE", "1520")):
+            october = replace(contract(strike, direction), instrument_key="october")
+            november = replace(
+                october, instrument_key="november", expiry=date(2026, 11, 23)
+            )
+            for day, expected in ((23, october), (26, november), (27, november), (28, november)):
+                with self.subTest(direction=direction, day=day):
+                    self.assertEqual(
+                        select_contract(
+                            [november, october], D(1500), direction,
+                            date(2026, 10, day),
+                        ),
+                        expected,
+                    )
+
+    def test_rollover_uses_next_exchange_session_across_holidays(self):
+        october = contract()
+        november = replace(october, expiry=date(2026, 11, 23))
+        # Monday 23 November expiry is shifted from Tuesday's holiday.
+        december = replace(october, expiry=date(2026, 12, 29))
+        self.assertEqual(
+            select_contract([november, december], D(1500), "CE",
+                            date(2026, 11, 20), next_session=date(2026, 11, 23)),
+            december,
+        )
+        # A closed Monday moves the session before Tuesday expiry to Friday.
+        self.assertEqual(
+            select_contract([october, december], D(1500), "CE",
+                            date(2026, 10, 23), next_session=date(2026, 10, 27)),
+            december,
+        )
+
+    def test_restricted_month_is_not_used_without_later_contracts(self):
+        with self.assertRaises(ValueError):
+            select_contract([contract()], D(1500), "CE", date(2026, 10, 26))
+
+    def test_expired_month_is_not_reused_when_next_month_is_unavailable(self):
+        with self.assertRaises(ValueError):
+            select_contract([contract()], D(1500), "CE", date(2026, 10, 28))
+
     def test_premium_levels_and_time_exit_without_quote(self):
         self.assertEqual(premium_levels(D(19), D("0.05")), (D(14), D(29)))
         self.assertEqual(premium_levels(D("5.05"), D("0.05")), (D("0.05"), D("15.05")))

@@ -89,18 +89,21 @@ def evaluate_breakout(
 
 
 def select_contract(
-    contracts: list[Contract], spot: Decimal, direction: str, today
+    contracts: list[Contract], spot: Decimal, direction: str, today, *, next_session=None
 ) -> Contract:
     money(spot)
+    boundary = next_session or next_weekday(today)
+    if boundary <= today:
+        raise ValueError("Next exchange session must follow today")
     valid = [
         c
         for c in contracts
         if c.underlying_key in {UNDERLYING, "RELIANCE"}
         and not c.weekly
-        and c.expiry >= today
+        and c.expiry > boundary
     ]
     if not valid:
-        raise ValueError("No monthly contracts")
+        raise ValueError("No unrestricted monthly contracts")
     expiry = min(c.expiry for c in valid)
     candidates = [
         c
@@ -112,6 +115,14 @@ def select_contract(
     if not candidates:
         raise ValueError("No ITM contract")
     return min(candidates, key=lambda c: (abs(c.strike - spot), c.instrument_key))
+
+
+def next_weekday(today):
+    """Weekday fallback for pure rules; live entries use the broker calendar."""
+    candidate = today + timedelta(days=1)
+    while candidate.weekday() >= 5:
+        candidate += timedelta(days=1)
+    return candidate
 
 
 def premium_levels(average: Decimal, tick: Decimal) -> tuple[Decimal, Decimal]:

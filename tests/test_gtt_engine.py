@@ -375,6 +375,24 @@ class GttIntegrationTests(unittest.TestCase):
                 self.assertFalse(self.gtts.records)
                 self.assertFalse(self.repo.intents)
 
+    def test_restricted_expiry_places_gtt_only_for_next_month(self):
+        from datetime import timedelta
+
+        for direction in ("CE", "PE"):
+            with self.subTest(direction=direction):
+                self.setup_engine(direction)
+                expiring = replace(self.market.contract, expiry=at().date())
+                later = replace(expiring, instrument_key="next-month",
+                                expiry=at().date() + timedelta(days=30))
+                self.market.q = replace(self.market.q, instrument_key="next-month")
+                snapshot = replace(self.market.snapshot(at()), contracts=[expiring, later])
+                self.market.snapshot = lambda now, contract=None, snapshot=snapshot: snapshot
+                self.tick()
+                self.assertEqual(self.latest().contract, later)
+                self.assertTrue(self.latest().entry_reserved)
+                self.assertEqual(self.gtts.get(self.latest().id).request.instrument,
+                                 "next-month")
+
     def test_restart_and_backend_setting_change_keep_gtt_management(self):
         from app.services.paper_gtt import PaperGttBroker
 

@@ -75,6 +75,15 @@ class GttRetryTests(unittest.TestCase):
         self.assertEqual(len(self.adapter.parents), 1)
         self.assertEqual(self.latest().state, "entry_pending")
 
+    def test_restricted_expiry_blocks_retry_without_rolling_original_contract(self):
+        expiry = self.latest().contract.expiry
+        self.market.next_trading_session = lambda now: expiry
+        self.tick(30)
+        self.assertEqual(len(self.adapter.parents), 1)
+        self.assertEqual(self.latest().state, "rejected")
+        self.assertIn("expiry_restricted", self.latest().message)
+
+
     def test_three_attempt_budget_survives_restart_and_never_submits_fourth(self):
         original = PaperGttBroker.place
 

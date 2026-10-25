@@ -66,8 +66,8 @@ class GttExecution:
     def _retry_entry(self, run, record, now):
         engine = self.engine
         try:
-            if run.contract.expiry <= now.astimezone(IST).date():
-                raise EntryValidationError("expiry_day")
+            if run.contract.expiry <= engine.market.next_trading_session(now):
+                raise EntryValidationError("expiry_restricted")
             if not engine.market.snapshot(now, run.contract).normal_session:
                 raise EntryValidationError("market_closed")
             if not engine.broker.supports_protective_stop(run.contract):

@@ -1,7 +1,7 @@
 """Read-only market adapter for the official SDK; no order submissions."""
 
 import time as clock
-from datetime import UTC, date, datetime, time
+from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 from threading import Lock
 
@@ -122,6 +122,35 @@ class MarketData:
         self._contracts = []
         self._day = None
         self._timings = []
+        self._next_session_day = None
+        self._next_session = None
+
+    def next_trading_session(self, now):
+        """Entry-only calendar gate; never needed to manage existing exposure."""
+        today = now.astimezone(IST).date()
+        if self._next_session_day == today:
+            return self._next_session
+        for offset in range(1, 15):
+            candidate = today + timedelta(days=offset)
+            timings = sdk_data(
+                self.calendar.get_exchange_timings, candidate.isoformat()
+            )
+            if not isinstance(timings, list):
+                raise TradingUnavailable("Future exchange timings unavailable")
+            for timing in timings:
+                if timing.exchange != "NSE":
+                    continue
+                start, end = stamp(timing.start_time), stamp(timing.end_time)
+                if (
+                    start.astimezone(IST).date() != candidate
+                    or end.astimezone(IST).date() != candidate
+                    or end <= start
+                ):
+                    raise TradingUnavailable("Invalid future exchange timings")
+                self._next_session_day = today
+                self._next_session = candidate
+                return candidate
+        raise TradingUnavailable("Next exchange session unavailable")
 
     def quote(self, instrument):
         data = sdk_data(self.quotes.get_full_market_quote, instrument, "2.0")

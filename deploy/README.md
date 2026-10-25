@@ -154,13 +154,17 @@ Use this sequence on the production server, outside an active position:
    exposure before proceeding; stopping a worker does not close positions.
 3. Verify the selected stock-option contract is eligible for fresh orders under
    Upstox's expiry-period rules, including product D and any delivery margin.
-   The current selector chooses the nearest monthly expiry. For 26 October
-   2026 that is 27 October; do not assume that this contract is eligible.
-4. Confirm the server's outbound static IP is registered in Upstox and the
-   app's applicable Algo Name/header requirements are met. Read-only history
-   access does not validate mutation access. The application currently has no
-   explicit X-Algo-Name configuration; resolve this for the selected app before
-   enabling live orders.
+   The selector excludes expiries on or before the next NSE trading session,
+   using Upstox's actual expiries and exchange calendar. On 26 and 27 October
+   2026 it rolls past the restricted 27 October contract to the next eligible
+   month. Existing exposure is managed on its original contract. Review future
+   broker notices for changes to the restriction window and other trading bans.
+4. Confirm the server's outbound static IP is registered in Upstox. Read-only
+   history access does not validate mutation access. This deployment uses a
+   regular API app and submits GTT orders without `X-Algo-Name`. Upstox's
+   [GTT placement documentation](https://upstox.com/developer/api-documentation/place-gtt-order/)
+   says that header is only required for an exchange-approved algo strategy;
+   it is not a launch requirement for this app.
 5. Fund the account for premium times quantity, charges and applicable broker
    margin. Retain a loss reserve. The planned-loss cap is not the entry funding
    requirement. Verify the account balance rather than relying on a past quote.

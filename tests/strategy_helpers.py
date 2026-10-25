@@ -118,6 +118,11 @@ class MemoryRepository:
 
 
 class FakeMarket:
+    def next_trading_session(self, now):
+        from app.strategies.rules import IST, next_weekday
+
+        return next_weekday(now.astimezone(IST).date())
+
     def __init__(self, direction="CE"):
         self.now = at()
         self.contract = contract("1480" if direction == "CE" else "1520", direction)

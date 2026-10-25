@@ -385,9 +385,12 @@ class StrategyEngine:
                 or not uq.fresh(received_at, self.settings.quote_max_age_seconds)
             ):
                 raise ValueError("Underlying quote unavailable")
+            block_reason = "expiry_calendar_unavailable"
+            next_session = self.market.next_trading_session(now)
             block_reason = "contract_unavailable"
             selected = select_contract(
-                snapshot.contracts, uq.last, signal.direction, key.exchange_date
+                snapshot.contracts, uq.last, signal.direction, key.exchange_date,
+                next_session=next_session,
             )
             run = self._state(
                 run,
@@ -403,11 +406,12 @@ class StrategyEngine:
                     "instrument": selected.instrument_key,
                     "strike": selected.strike,
                     "expiry": selected.expiry,
+                    "entry_expiry_boundary": next_session,
                     "quantity": selected.quantity,
                 },
             )
-            if selected.expiry == key.exchange_date:
-                raise EntryValidationError("expiry_day")
+            if selected.expiry <= next_session:
+                raise EntryValidationError("expiry_restricted")
             block_reason = "contract_already_held"
             if any(
                 p.instrument == selected.instrument_key and p.quantity

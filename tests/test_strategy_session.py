@@ -38,16 +38,20 @@ class SessionTests(unittest.TestCase):
             tick_size=5,
         )
         market.options.get_option_contracts.return_value = result([instrument])
-        timings = [
-            sdk.ExchangeTimingData(
+        def exchange_timings(day, **kwargs):
+            from datetime import datetime
+
+            selected = datetime.fromisoformat(day).date()
+            data = [sdk.ExchangeTimingData(
                 exchange="NSE",
-                start_time=int(at(9, 15).timestamp() * 1000),
-                end_time=int(at(15, 30).timestamp() * 1000),
-            )
-        ]
-        market.calendar.get_exchange_timings.return_value = type(
-            "Response", (), {"status": "success", "data": timings}
-        )()
+                start_time=int(at(9, 15).replace(year=selected.year,
+                    month=selected.month, day=selected.day).timestamp()*1000),
+                end_time=int(at(15, 30).replace(year=selected.year,
+                    month=selected.month, day=selected.day).timestamp()*1000),
+            )]
+            return type("Response", (), {"status": "success", "data": data})()
+
+        market.calendar.get_exchange_timings.side_effect = exchange_timings
         rows = [
             [at(9, 15).isoformat(), 1500, 1510, 1490, 1500, 1000, 0],
             [at(9, 30).isoformat(), 1500, 1520, 1490, 1511, 1000, 0],

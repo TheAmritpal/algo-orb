@@ -257,7 +257,7 @@ existing fills and orders are reconciled before considering new entries.
 The worker marks RELIANCE equity's 09:15–09:30 IST range and waits for a later
 completed 15-minute candle to close strictly outside it. The earliest signal is
 09:45. Above the range buys a call; below buys a put. It uses the nearest actual
-monthly expiry and the closest listed strike strictly ITM at entry. Strike,
+eligible monthly expiry and the closest listed strike strictly ITM at entry. Strike,
 expiry and units come from current Upstox metadata; two lots is not two units.
 The instrument is resolved by RELIANCE equity's ISIN key `NSE_EQ|INE002A01018`,
 and returned option metadata must identify that underlying and RELIANCE symbol.
@@ -266,10 +266,19 @@ Entries use NRML (`product="D"`) and one durable entry allowance per selected
 account, mode and exchange date. Rejected or uncertain attempts consume that
 allowance. No top-ups or re-entry; old signals are not replayed after restart.
 The last-entry cutoff is 15:00 IST. Holidays and special sessions are skipped.
-New entries are also skipped on the nearest monthly contract's actual expiry
-date from Upstox metadata; the worker does not roll to a later expiry to enter
-that day. The skipped run records `expiry_day`. Existing positions continue to
-be reconciled and exited on expiry days.
+New entries automatically roll beyond contracts expiring on or before the next
+NSE trading session. This models Upstox's restriction from the session before
+stock F&O expiry. Actual contract expiry dates and future exchange timings come
+from Upstox, so weekends, holidays and shifted expiry dates are respected. For
+26 and 27 October 2026, the 27 October expiry is excluded and the next eligible
+monthly expiry is selected. The strategy can enter that later expiry on expiry
+day; it no longer skips the whole day. If no eligible contract or verified future
+calendar is available, no fresh entry is sent. Existing positions remain on their
+original contracts and continue to be reconciled and exited. Retries never roll
+an existing attempt to another contract. The selected contract event records the
+calendar boundary used for eligibility. This policy follows the September and
+October 2026 broker notices; review future notices for earlier restrictions or
+other contract-specific bans that calendar filtering cannot establish.
 
 `ORB_EXECUTION_BACKEND=gtt` (default) submits a multi-leg Upstox GTT after candle
 confirmation. ENTRY uses `IMMEDIATE` at the validated option ask; Upstox documents

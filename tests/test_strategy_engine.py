@@ -79,7 +79,7 @@ class EngineTests(unittest.TestCase):
                 )
                 self.assertEqual(r.remaining_quantity, 500)
 
-    def test_expiry_day_blocks_entry_without_rolling_to_next_month(self):
+    def test_expiry_day_enters_next_month_without_using_restricted_contract(self):
         for direction in ("CE", "PE"):
             with self.subTest(direction=direction):
                 self.setup_engine(direction)
@@ -92,17 +92,15 @@ class EngineTests(unittest.TestCase):
                 snapshot = replace(
                     self.market.snapshot(at()), contracts=[later, expiring]
                 )
-                self.market.snapshot = lambda now, contract=None: snapshot
+                self.market.snapshot = lambda now, contract=None, snapshot=snapshot: snapshot
+                self.market.q = replace(self.market.q, instrument_key="next-month")
                 self.run_now()
                 self.run_now()
-                self.assertEqual(self.latest().state, "skipped")
-                self.assertEqual(self.latest().contract, expiring)
-                self.assertFalse(self.latest().entry_reserved)
-                self.assertFalse(self.repo.intents)
-                self.assertFalse(self.broker.orders)
-                blocked = [e for e in self.repo.events if e[1] == "entry_blocked"]
-                self.assertEqual(len(blocked), 1)
-                self.assertEqual(blocked[0][2]["reason"], "expiry_day")
+                self.assertEqual(self.latest().contract, later)
+                self.assertTrue(self.latest().entry_reserved)
+                self.assertTrue(self.broker.orders)
+                self.assertTrue(all(i.request.instrument == "next-month"
+                                    for i in self.repo.intents.values()))
 
     def test_expiry_day_still_exits_an_existing_position(self):
         self.setup_engine()
@@ -115,12 +113,29 @@ class EngineTests(unittest.TestCase):
             run.state,
             {"contract": replace(run.contract, expiry=at().date())},
         )
+        self.market.next_trading_session = MagicMock(
+            side_effect=TradingUnavailable("Calendar unavailable")
+        )
         self.market.move(at(15, 25))
         for _ in range(3):
             self.run_now(at(15, 25))
         self.assertEqual(
             (self.latest().state, self.latest().remaining_quantity), ("closed", 0)
         )
+        self.market.next_trading_session.assert_not_called()
+
+    def test_unavailable_expiry_calendar_defers_entry_without_submission(self):
+        self.setup_engine()
+        self.market.next_trading_session = MagicMock(
+            side_effect=TradingUnavailable("Calendar unavailable")
+        )
+        with self.assertRaises(TradingUnavailable):
+            self.run_now()
+        self.assertFalse(self.latest().entry_reserved)
+        self.assertFalse(self.repo.intents)
+        self.assertFalse(self.broker.orders)
+        deferred = [e for e in self.repo.events if e[1] == "entry_deferred"]
+        self.assertEqual(deferred[-1][2]["reason"], "expiry_calendar_unavailable")
 
     def test_target_closes_and_daily_limit_prevents_reentry(self):
         self.setup_engine()
