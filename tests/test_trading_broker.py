@@ -125,3 +125,59 @@ class BrokerTests(unittest.TestCase):
         self.assertTrue(broker.supports_protective_stop(contract()))
         broker.profile.exchanges = ["NSE"]
         self.assertFalse(broker.supports_protective_stop(contract()))
+
+    def test_known_order_uses_exact_status_endpoint_and_sdk_response(self):
+        import upstox_client as sdk
+
+        intent = OrderIntent(1, 1, "entry", self.request, at(), "o1")
+        raw = sdk.OrderBookData(
+            order_id="o1",
+            tag="orb123",
+            instrument_token="option",
+            product="D",
+            transaction_type="BUY",
+            quantity=500,
+            filled_quantity=0,
+            status="open",
+        )
+        self.api.get_order_status.return_value = sdk.GetOrderDetailsResponse(
+            status="success", data=raw
+        )
+        result = self.broker.reconcile(intent)
+        self.assertEqual((result.broker_id, result.status), ("o1", "open"))
+        self.api.get_order_book.assert_not_called()
+        self.assertEqual(self.api.get_order_status.call_args.kwargs["order_id"], "o1")
+        raw.order_id = "other"
+        with self.assertRaises(TradingUnavailable):
+            self.broker.reconcile(intent)
+
+    def test_gtt_synthetic_tag_allowed_only_for_known_order_identity(self):
+        intent = OrderIntent(1, 1, "entry", self.request, at(), "o1")
+        raw = N(
+            order_id="o1",
+            tag=None,
+            instrument_token="option",
+            product="D",
+            transaction_type="BUY",
+            quantity=500,
+            filled_quantity=0,
+            status="open",
+        )
+        self.api.get_order_status.return_value = N(status="success", data=raw)
+        result = self.broker.reconcile(intent, verify_tag=False)
+        self.assertEqual((result.broker_id, result.tag), ("o1", "orb123"))
+        with self.assertRaises(TradingUnavailable):
+            self.broker.reconcile(intent)
+        with self.assertRaises(ValueError):
+            self.broker.reconcile(replace(intent, broker_id=None), verify_tag=False)
+        raw.transaction_type = "SELL"
+        with self.assertRaises(TradingUnavailable):
+            self.broker.reconcile(intent, verify_tag=False)
+
+    def test_status_request_failure_is_sanitized_without_order_book_fallback(self):
+        intent = OrderIntent(1, 1, "entry", self.request, at(), "o1")
+        self.api.get_order_status.side_effect = TimeoutError("private-token")
+        with self.assertRaises(TradingUnavailable) as caught:
+            self.broker.reconcile(intent)
+        self.assertNotIn("private-token", str(caught.exception))
+        self.api.get_order_book.assert_not_called()

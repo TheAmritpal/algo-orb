@@ -4,7 +4,11 @@ from datetime import time
 from decimal import Decimal
 from uuid import uuid4
 
-from app.services.trading_broker import EntryValidationError, validate_entry
+from app.services.trading_broker import (
+    EntryValidationError,
+    PositionMismatchError,
+    validate_entry,
+)
 from app.strategies.gtt_models import LEG_TERMINAL
 from app.strategies.models import TERMINAL, OrderRequest
 from app.strategies.rules import IST, premium_levels
@@ -360,8 +364,13 @@ class GttExecution:
                 target=target,
                 message="Upstox GTT monitors target and stop-loss",
             )
-        except Exception:  # noqa: BLE001 -- never expose broker/SQL exception text
+        except Exception as exc:  # noqa: BLE001 -- never expose broker/SQL exception text
             try:
                 self.repository.block_retries(run.id)
             finally:
-                engine._fail(run, "GTT outcome uncertain; reconciliation required")
+                engine._fail(
+                    run,
+                    "Broker position mismatch; possible manual exit; reconciliation required"
+                    if isinstance(exc, PositionMismatchError)
+                    else "GTT outcome uncertain; reconciliation required",
+                )

@@ -15,6 +15,10 @@ class EntryValidationError(ValueError):
         super().__init__(reason.replace("_", " "))
 
 
+class PositionMismatchError(RuntimeError):
+    pass
+
+
 def validate_entry(contract, quote, now, settings, funds):
     if quote.instrument_key != contract.instrument_key or not quote.fresh(
         now, settings.quote_max_age_seconds
@@ -88,30 +92,32 @@ class Broker:
             raise TradingUnavailable("Order acknowledgement uncertain")
         return BrokerOrder(data.order_id, request.tag, "unknown", request.quantity, 0)
 
-    def reconcile(self, intent):
-        data = sdk_data(self.orders.get_order_book, "2.0")
-        matches = [
-            o
-            for o in data
-            if (
-                o.order_id == intent.broker_id
-                if intent.broker_id
-                else o.tag == intent.request.tag
-            )
-        ]
-        if not matches:
-            return None
-        if len(matches) != 1:
-            raise TradingUnavailable("Ambiguous broker order identity")
-        raw = matches[0]
+    def reconcile(self, intent, *, verify_tag=True):
+        if not verify_tag and not intent.broker_id:
+            raise ValueError("GTT child requires a known exchange order ID")
+        if intent.broker_id:
+            raw = sdk_data(self.orders.get_order_status, order_id=intent.broker_id)
+            if raw is None:
+                return None
+            if raw.order_id != intent.broker_id:
+                raise TradingUnavailable("Broker order identity mismatch")
+        else:
+            data = sdk_data(self.orders.get_order_book, "2.0")
+            matches = [o for o in data if o.tag == intent.request.tag]
+            if not matches:
+                return None
+            if len(matches) != 1:
+                raise TradingUnavailable("Ambiguous broker order identity")
+            raw = matches[0]
         req = intent.request
-        if (
-            raw.tag,
+        # GTT child tags are generated locally, not sent to Upstox. Their exact
+        # exchange IDs are attached from the verified parent snapshot instead.
+        if (verify_tag and raw.tag != req.tag) or (
             raw.instrument_token,
             raw.product,
             raw.transaction_type,
             raw.quantity,
-        ) != (req.tag, req.instrument, "D", req.side, req.quantity):
+        ) != (req.instrument, "D", req.side, req.quantity):
             raise TradingUnavailable("Broker order does not match intent")
         status = {
             "complete": "complete",

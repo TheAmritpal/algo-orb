@@ -59,7 +59,7 @@ class GttRetryTests(unittest.TestCase):
         self.tick(30)
         record = self.gtts.get(1)
         self.assertEqual(record.request.price, D(102))
-        self.assertEqual((record.stop, record.target), (D(97), D(112)))
+        self.assertEqual((record.stop, record.target), (D(97), D(110)))
         self.assertEqual(record.attempt, 2)
         self.assertEqual(len(self.adapter.parents), 2)
         self.assertTrue(self.gtts.history[(1, 1)].snapshot.terminal)

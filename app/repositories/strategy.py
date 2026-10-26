@@ -497,6 +497,8 @@ class StrategyRepository:
             "strike",
             "expiry",
             "quantity",
+            "expected_quantity",
+            "actual_quantity",
             "price",
             "previous_close",
             "previous_opening_high",

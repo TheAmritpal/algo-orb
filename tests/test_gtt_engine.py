@@ -74,7 +74,7 @@ class GttExecutionTests(unittest.TestCase):
             )
         ]
         for strategy, price, side in [
-            ("TARGET", "110", "SELL"),
+            ("TARGET", "108", "SELL"),
             ("STOPLOSS", "95", "SELL"),
         ]:
             status = "CANCELLED" if terminal else "SCHEDULED"
@@ -88,7 +88,7 @@ class GttExecutionTests(unittest.TestCase):
                     "complete",
                     500,
                     500,
-                    (Fill("targettrade", oid, 500, D(110)),),
+                    (Fill("targettrade", oid, 500, D(108)),),
                 )
             legs.append(GttLeg(strategy, status, D(price), side, oid))
         return GttSnapshot("GTT-1", tuple(legs))
@@ -116,7 +116,7 @@ class GttExecutionTests(unittest.TestCase):
             legs=tuple(
                 replace(
                     l,
-                    price=D("109.5")
+                    price=D("107.5")
                     if l.strategy == "TARGET"
                     else D("94.5")
                     if l.strategy == "STOPLOSS"
@@ -130,12 +130,26 @@ class GttExecutionTests(unittest.TestCase):
         run = self.repo.get_run(self.run.id)
         self.assertEqual(
             (run.state, run.stop, run.target, run.remaining_quantity),
-            ("open", D("94.5"), D("109.5"), 500),
+            ("open", D("94.5"), D("107.5"), 500),
         )
         self.adapter.modify.assert_called_once()
         self.assertFalse(
             any(i.purpose in {"stop", "exit"} for i in self.repo.intents.values())
         )
+
+    def test_manual_flat_position_stays_unresolved_without_another_sell(self):
+        self.enter()
+        self.adapter.snapshot.return_value = self.snapshot()
+        self.paper.positions = list
+        self.execution.manage(self.repo.get_run(self.run.id), at(11, 0))
+        run = self.repo.get_run(self.run.id)
+        self.assertEqual(run.state, "reconciliation_required")
+        self.assertIn("manual exit", run.message)
+        self.assertEqual(run.remaining_quantity, 500)
+        self.assertTrue(self.gtts.get(run.id).retry_blocked)
+        self.assertFalse(any(i.purpose == "exit" for i in self.repo.intents.values()))
+        self.adapter.modify.assert_not_called()
+        self.adapter.cancel.assert_not_called()
 
     def test_active_target_prevents_local_duplicate_sell(self):
         self.enter()
@@ -348,7 +362,7 @@ class GttIntegrationTests(unittest.TestCase):
                         run.target,
                         run.remaining_quantity,
                     ),
-                    ("gtt", D(95), D(110), 500),
+                    ("gtt", D(95), D(108), 500),
                 )
                 self.assertEqual(run.contract.option_type, direction)
                 self.market.move(at(10, 0), "110", "111")

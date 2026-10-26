@@ -75,7 +75,7 @@ class EngineTests(unittest.TestCase):
                     ("D", 500, direction),
                 )
                 self.assertEqual(
-                    (r.entry_average, r.stop, r.target), (D(100), D(95), D(110))
+                    (r.entry_average, r.stop, r.target), (D(100), D(95), D(108))
                 )
                 self.assertEqual(r.remaining_quantity, 500)
 

@@ -94,7 +94,7 @@ class GttBrokerTests(unittest.TestCase):
             status="complete",
             filled_quantity=500,
         )
-        self.orders.get_order_book.return_value = N(status="success", data=[raw])
+        self.orders.get_order_status.return_value = N(status="success", data=raw)
         trade = N(trade_id="t1", order_id="o1", quantity=500, average_price=99.5)
         self.orders.get_trades_by_order.return_value = N(
             status="success", data=[trade, trade]
@@ -132,6 +132,26 @@ class GttBrokerTests(unittest.TestCase):
             status="open",
             filled_quantity=0,
         )
-        self.orders.get_order_book.return_value = N(status="success", data=[raw])
+        self.orders.get_order_status.return_value = N(status="success", data=raw)
         with self.assertRaises(ValueError):
             self.broker.child_order(self.record, leg, self.request)
+
+    def test_child_status_rejects_wrong_id_and_incomplete_fills(self):
+        leg = GttLeg("ENTRY", "COMPLETED", D(100), "BUY", "o1")
+        raw = N(
+            order_id="other",
+            instrument_token="NSE_FO|123",
+            product="D",
+            transaction_type="BUY",
+            quantity=500,
+            filled_quantity=500,
+            status="complete",
+        )
+        self.orders.get_order_status.return_value = N(status="success", data=raw)
+        with self.assertRaises(ValueError):
+            self.broker.child_order(self.record, leg, self.request)
+        raw.order_id = "o1"
+        self.orders.get_trades_by_order.return_value = N(status="success", data=[])
+        with self.assertRaisesRegex(ValueError, "Incomplete broker trade evidence"):
+            self.broker.child_order(self.record, leg, self.request)
+        self.orders.get_order_book.assert_not_called()

@@ -18,8 +18,8 @@ from app.strategies.models import (
 
 IST = ZoneInfo("Asia/Kolkata")
 UNDERLYING = "NSE_EQ|INE002A01018"
-PREMIUM_STOP_DISTANCE = Decimal("5")
-PREMIUM_TARGET_DISTANCE = Decimal("10")
+PREMIUM_STOP_DISTANCE = Decimal(5)
+PREMIUM_TARGET_DISTANCE = Decimal(8)
 
 
 def session_candles(candles: list[Candle], now: datetime) -> list[Candle]:

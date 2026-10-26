@@ -21,9 +21,9 @@ class GttDomainTests(unittest.TestCase):
         self.assertIn("PRIMARY KEY (run_id, attempt, strategy)", sql)
         self.assertNotIn("DROP TABLE strategy_gtt_mutations", sql)
 
-    def test_stop_is_five_and_target_is_ten_points_from_entry(self):
+    def test_stop_is_five_and_target_is_eight_points_from_entry(self):
         self.assertEqual(
-            premium_levels(D("101.50"), D("0.05")), (D("96.50"), D("111.50"))
+            premium_levels(D("101.50"), D("0.05")), (D("96.50"), D("109.50"))
         )
 
     def test_historical_backend_defaults_to_orders(self):

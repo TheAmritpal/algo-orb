@@ -6,11 +6,13 @@ from uuid import uuid4
 
 from app.services.trading_broker import (
     EntryValidationError,
+    PositionMismatchError,
     bounded_sell,
     validate_entry,
 )
 from app.services.trading_market import TradingUnavailable
 from app.strategies.models import TERMINAL, BrokerOrder, OrderRequest, RunKey, Signal
+from app.strategies.order_status import OrderStatusPoller
 from app.strategies.rules import (
     IST,
     UNDERLYING,
@@ -43,6 +45,7 @@ class StrategyEngine:
         self.entries_enabled = True
         self.clock = clock
         self._tick_time = None
+        self.order_status = OrderStatusPoller(repository, broker)
         self.gtt = None
         if gtt_broker is not None:
             from app.repositories.gtt import GttRepository
@@ -138,7 +141,7 @@ class StrategyEngine:
             if p.instrument == run.contract.instrument_key and p.product == "D"
         )
         if actual != run.remaining_quantity:
-            raise RuntimeError("Position attribution mismatch")
+            raise PositionMismatchError("Position attribution mismatch")
 
     def _quote(self, run, now):
         quote = self.market.quote(run.contract.instrument_key)
@@ -194,12 +197,21 @@ class StrategyEngine:
         )
 
     def _manage(self, run, now):
+        if run.key.mode == "live":
+            run, verified = self.order_status.poll(run, now)
+            if not verified:
+                return self._fail(
+                    run, "Unable to verify order status or position; reconciliation required"
+                )
         if run.execution_backend == "gtt":
             if self.gtt is None:
                 return self._fail(run, "GTT recovery adapter unavailable")
             return self.gtt.manage(run, now)
         try:
             run = self._sync(run)
+            # A manual close must not leave a partial entry creating a new SELL
+            # before the later cancellation/exit reconciliation guard runs.
+            self._position_matches(run)
             now = self.clock() if self.clock else now
             entry = next((i for i in self._intents(run) if i.purpose == "entry"), None)
             if entry is None:
@@ -317,8 +329,13 @@ class StrategyEngine:
                 for i in self._intents(run)
             ):
                 return self._exit(run, now, "protective stop rejected")
-        except Exception:  # noqa: BLE001 -- fail closed without leaking broker/SQL secrets
-            self._fail(run, "Unable to confirm safe execution; reconciliation required")
+        except Exception as exc:  # noqa: BLE001 -- never include exception text
+            self._fail(
+                run,
+                "Broker position mismatch; possible manual exit; reconciliation required"
+                if isinstance(exc, PositionMismatchError)
+                else "Unable to confirm safe execution; reconciliation required",
+            )
 
     def recover(self, now):
         self._tick_time = now

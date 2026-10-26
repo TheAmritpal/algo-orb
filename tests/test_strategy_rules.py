@@ -168,8 +168,8 @@ class RuleTests(unittest.TestCase):
             select_contract([contract()], D(1500), "CE", date(2026, 10, 28))
 
     def test_premium_levels_and_time_exit_without_quote(self):
-        self.assertEqual(premium_levels(D(19), D("0.05")), (D(14), D(29)))
-        self.assertEqual(premium_levels(D("5.05"), D("0.05")), (D("0.05"), D("15.05")))
+        self.assertEqual(premium_levels(D(19), D("0.05")), (D(14), D(27)))
+        self.assertEqual(premium_levels(D("5.05"), D("0.05")), (D("0.05"), D("13.05")))
         for average in [D(5), D(4), D("NaN"), D("100.001")]:
             with self.assertRaises(ValueError):
                 premium_levels(average, D("0.05"))

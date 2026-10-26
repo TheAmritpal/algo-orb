@@ -288,13 +288,27 @@ our worker's polling delay from the normal exit trigger path. This does not
 remove exchange latency, slippage, gaps or the possibility of an unfilled order.
 Market protection is explicitly automatic (`-1`) for applicable GTT legs.
 
-Initial TP/SL are ask +10 / -5 premium points. Confirmed average entry fills
-set the final target to average +10 and stop to average -5, with modification
+Initial TP/SL are ask +8 / -5 premium points. Confirmed average entry fills
+set the final target to average +8 and stop to average -5, with modification
 read-back. Exact levels must fit the contract tick. The worker never submits a
 parallel local TP/SL while GTT exits remain active. An unfilled entry is cancelled
 after a 30-second observation window, subject to confirmed broker outcomes.
 Partial entries whose correctly sized protection cannot be verified are cancelled
 and reconciled, then a controlled exit of confirmed residual exposure is attempted.
+
+Known live exchange order IDs also receive an independent status check every
+30 seconds while their run is unresolved (including completed entry orders).
+The worker uses the official SDK's order-details endpoint and stores verified
+statuses, unique fills, and sanitized status/position check events. These checks
+continue when the GTT details endpoint fails. Restart checks immediately; the
+worker must be running, and checks occur on its polling iterations. Existing
+execution reconciliation can read orders more frequently for protection and
+cancellation confirmation. Failed status or position reads block execution
+management until a subsequent check succeeds. A broker position mismatch after
+GTT child reconciliation remains unresolved and flags a possible manual exit;
+the worker does not invent exit fills or submit another sell against a flat
+position. Manual exits still need matched broker trade evidence before the
+application can report a confirmed close or realized P&L.
 
 GTT parent IDs, generated exchange order IDs, unique trades and mutation intents
 are persisted separately. A successful create/cancel response is not evidence of
@@ -308,7 +322,7 @@ NRML does not provide an intraday auto-square-off guarantee.
 
 `ORB_EXECUTION_BACKEND=orders` selects the existing ordinary limit-entry,
 broker stop-limit and application-monitored target path. New trades also use
-+10/-5. Recovery uses the backend stored on the run, independent of the current
++8/-5. Recovery uses the backend stored on the run, independent of the current
 setting. Existing ordinary-order runs retain their recorded levels.
 
 ### Settings and deployment
@@ -670,7 +684,7 @@ additional attempts (three total)** on the same contract and original signal,
 only after confirming that the previous parent and generated exchange orders
 are cancelled with zero fills and zero broker exposure. Every retry uses a new
 quote and repeats session, protection, funds and configured risk checks. Stop
-and target remain entry premium minus 5 / plus 10. Retries stop at 15:00 IST.
+and target remain entry premium minus 5 / plus 8. Retries stop at 15:00 IST.
 
 Partial fills follow the existing cancel-and-flatten path, without another
 entry. Rejections and uncertain broker outcomes do not authorize a new entry.

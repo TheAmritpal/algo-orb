@@ -110,11 +110,11 @@ class GttBroker:
 
     def child_order(self, record, leg, request):
         """Read fills only for the exact exchange order linked by this GTT leg."""
-        raw_orders = sdk_data(self.orders.get_order_book, "2.0")
-        matches = [o for o in raw_orders if o.order_id == leg.order_id]
-        if len(matches) != 1:
-            raise TradingUnavailable("GTT child order unavailable or ambiguous")
-        raw = matches[0]
+        if not leg.order_id:
+            raise ValueError("Missing GTT child order ID")
+        raw = sdk_data(self.orders.get_order_status, order_id=leg.order_id)
+        if raw is None or raw.order_id != leg.order_id:
+            raise ValueError("GTT child order identity mismatch")
         if (raw.instrument_token, raw.product, raw.transaction_type, raw.quantity) != (
             record.request.instrument,
             "D",
