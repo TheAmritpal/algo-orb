@@ -47,6 +47,51 @@ class GttBrokerTests(unittest.TestCase):
             ],
         )
 
+    def test_place_uses_request_product_i(self):
+        request = OrderRequest(
+            "gtttest", "NSE_FO|123", "I", "BUY", "LIMIT", 500, D(100)
+        )
+        record = GttRecord(1, request, D(90), D(118), datetime.now(UTC), "GTT-123")
+        self.api.place_gtt_order.return_value = N(
+            status="success", data=N(gtt_order_ids=["GTT-123"])
+        )
+        self.assertEqual(self.broker.place(record), "GTT-123")
+        self.assertEqual(
+            self.api.place_gtt_order.call_args.kwargs["body"].product, "I"
+        )
+
+    def test_snapshot_accepts_matching_product_i(self):
+        request = OrderRequest(
+            "gtttest", "NSE_FO|123", "I", "BUY", "LIMIT", 500, D(100)
+        )
+        record = GttRecord(1, request, D(90), D(118), datetime.now(UTC), "GTT-123")
+        raw = N(
+            gtt_order_id="GTT-123",
+            type="MULTIPLE",
+            quantity=500,
+            product="I",
+            instrument_token="NSE_FO|123",
+            rules=[
+                N(
+                    strategy=s,
+                    status="SCHEDULED",
+                    trigger_price=p,
+                    transaction_type=side,
+                    order_id=None,
+                    trigger_type="IMMEDIATE",
+                )
+                for s, p, side in [
+                    ("ENTRY", 100, "BUY"),
+                    ("TARGET", 118, "SELL"),
+                    ("STOPLOSS", 90, "SELL"),
+                ]
+            ],
+        )
+        self.api.get_gtt_order_details.return_value = N(
+            status="success", data=[raw]
+        )
+        self.assertFalse(self.broker.snapshot(record).terminal)
+
     def test_creation_never_retries_and_sanitizes_exception(self):
         self.api.place_gtt_order.side_effect = TimeoutError("private-token")
         with self.assertRaisesRegex(RuntimeError, "uncertain") as caught:

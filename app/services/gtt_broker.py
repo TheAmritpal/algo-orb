@@ -49,7 +49,7 @@ class GttBroker:
         body = sdk.GttPlaceOrderRequest(
             type="MULTIPLE",
             instrument_token=req.instrument,
-            product="D",
+            product=req.product,
             quantity=req.quantity,
             rules=self._rules(record, record.stop, record.target),
             transaction_type="BUY",
@@ -86,7 +86,7 @@ class GttBroker:
             raw.instrument_token,
             raw.product,
             raw.quantity,
-        ) != (record.broker_id, "MULTIPLE", req.instrument, "D", req.quantity):
+        ) != (record.broker_id, "MULTIPLE", req.instrument, req.product, req.quantity):
             raise ValueError("GTT does not match reserved intent")
         legs = []
         for rule in raw.rules:
@@ -117,7 +117,7 @@ class GttBroker:
             raise ValueError("GTT child order identity mismatch")
         if (raw.instrument_token, raw.product, raw.transaction_type, raw.quantity) != (
             record.request.instrument,
-            "D",
+            record.request.product,
             leg.side,
             record.request.quantity,
         ):

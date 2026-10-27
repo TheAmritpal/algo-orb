@@ -181,7 +181,7 @@ class OrderRequest:
         money(self.price)
         money(self.trigger_price, False)
         if (
-            self.product != "D"
+            self.product not in {"I", "D"}
             or self.side not in {"BUY", "SELL"}
             or self.order_type not in {"LIMIT", "SL"}
         ):

@@ -30,6 +30,33 @@ class BrokerTests(unittest.TestCase):
         )
         self.assertEqual((order.status, order.filled_quantity), ("unknown", 0))
 
+    def test_submit_uses_request_product_i(self):
+        request = replace(self.request, product="I")
+        self.api.place_order.return_value = N(status="success", data=N(order_id="o1"))
+        self.broker.submit(request)
+        self.assertEqual(self.api.place_order.call_args.args[0].product, "I")
+
+    def test_reconcile_accepts_matching_product_i(self):
+        request = replace(self.request, product="I")
+        intent = OrderIntent(1, 1, "entry", request, at(), broker_id="o1")
+        raw = N(
+            order_id="o1",
+            tag=request.tag,
+            instrument_token="option",
+            product="I",
+            transaction_type="BUY",
+            quantity=500,
+            filled_quantity=500,
+            status="complete",
+        )
+        self.api.get_order_status.return_value = N(status="success", data=raw)
+        trade = N(trade_id="t1", order_id="o1", quantity=500, average_price=100)
+        self.api.get_trades_by_order.return_value = N(
+            status="success", data=[trade]
+        )
+        result = self.broker.reconcile(intent, verify_tag=False)
+        self.assertEqual(result.status, "complete")
+
     def test_timeout_is_unknown_and_never_retried(self):
         self.api.place_order.side_effect = TimeoutError("secret")
         with self.assertRaisesRegex(TradingUnavailable, "uncertain"):

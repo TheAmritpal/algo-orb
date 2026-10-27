@@ -373,7 +373,10 @@ class StrategyRepository:
     def _insert(self, c, run, purpose, request):
         if purpose not in {"entry", "stop", "exit"}:
             raise ValueError("Invalid order purpose")
-        if request.instrument != run.contract.instrument_key or request.product != "D":
+        if (
+            request.instrument != run.contract.instrument_key
+            or request.product not in {"I", "D"}
+        ):
             raise ValueError("Contract mismatch")
         existing = _intents(c, run.id)
         if purpose != "entry" and any(

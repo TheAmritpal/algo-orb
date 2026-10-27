@@ -123,7 +123,7 @@ class GttExecution:
             request = OrderRequest(
                 "gtt" + uuid4().hex[:17],
                 record.request.instrument,
-                "D",
+                record.request.product,
                 leg.side,
                 "LIMIT",
                 record.request.quantity,

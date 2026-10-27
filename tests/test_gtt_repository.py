@@ -26,6 +26,18 @@ class GttDomainTests(unittest.TestCase):
             premium_levels(D("101.50"), D("0.05")), (D("96.50"), D("109.50"))
         )
 
+    def test_order_request_accepts_intraday_and_delivery_products(self):
+        from app.strategies.models import OrderRequest
+
+        for product in ("I", "D"):
+            OrderRequest(
+                "gttproduct", "option", product, "BUY", "LIMIT", 500, D(100)
+            )
+        with self.assertRaises(ValueError):
+            OrderRequest(
+                "gttproduct", "option", "X", "BUY", "LIMIT", 500, D(100)
+            )
+
     def test_historical_backend_defaults_to_orders(self):
         row = {
             "id": 1,

@@ -76,7 +76,7 @@ class Broker:
     def submit(self, request):
         body = sdk.PlaceOrderRequest(
             quantity=request.quantity,
-            product="D",
+            product=request.product,
             validity="DAY",
             price=float(request.price),
             tag=request.tag,
@@ -117,7 +117,7 @@ class Broker:
             raw.product,
             raw.transaction_type,
             raw.quantity,
-        ) != (req.instrument, "D", req.side, req.quantity):
+        ) != (req.instrument, req.product, req.side, req.quantity):
             raise TradingUnavailable("Broker order does not match intent")
         status = {
             "complete": "complete",

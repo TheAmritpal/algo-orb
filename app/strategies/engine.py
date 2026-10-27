@@ -64,11 +64,25 @@ class StrategyEngine:
         current = self.repository.get_run(run.id)
         return self._state(current, "reconciliation_required", message=reason)
 
-    def _request(self, run, side, quantity, price, kind="LIMIT", trigger=Decimal(0)):
+    def _entry_product(self):
+        if self.settings.mode == "live" and self.settings.execution_backend == "gtt":
+            return "I"
+        return "D"
+
+    def _request(
+        self,
+        run,
+        side,
+        quantity,
+        price,
+        kind="LIMIT",
+        trigger=Decimal(0),
+        product="D",
+    ):
         return OrderRequest(
             "orb" + uuid4().hex[:17],
             run.contract.instrument_key,
-            "D",
+            product,
             side,
             kind,
             quantity,
@@ -460,7 +474,15 @@ class StrategyEngine:
             )
             # Recheck wall time after persistence before any broker mutation.
             run = self._submit(
-                run, "entry", self._request(run, "BUY", selected.quantity, price)
+                run,
+                "entry",
+                self._request(
+                    run,
+                    "BUY",
+                    selected.quantity,
+                    price,
+                    product=self._entry_product(),
+                ),
             )
             if run.filled_quantity:
                 self._manage(run, now)
