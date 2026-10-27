@@ -1,5 +1,8 @@
 # Order Reconciliation Recovery Implementation Plan
 
+> **Superseded by** `2026-10-27-place-once-gtt-cleanup.md`. The project moved to
+> a simpler place-once GTT flow with a single 15:14 cleanup.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Close live run 160103 with its confirmed historical fills, stop expired prior-day orders from blocking the next session, and keep unresolved exposure or active GTTs blocking.

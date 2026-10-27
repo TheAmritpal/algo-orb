@@ -1,5 +1,8 @@
 # Order Reconciliation Recovery Design
 
+> **Superseded by** `2026-10-27-place-once-gtt-cleanup-design.md`. This design was
+> replaced by the simpler place-once GTT flow with a 15:14 cleanup.
+
 **Date:** 2026-10-27
 **Status:** Proposed
 **Scope:** live reconciliation recovery for the Oct 26, 2026 GTT run and prevention of the same failure mode.
