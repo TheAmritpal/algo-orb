@@ -211,6 +211,29 @@ class OrderStatusTests(unittest.TestCase):
         )
         self.assertIn("manual exit", run.message)
 
+    def test_live_gtt_active_run_is_not_polled(self):
+        run = self.repo.get_run(1)
+        self.repo.transition(1, run.version, "gtt_active", {})
+        self.assertIn(
+            1,
+            [
+                candidate.id
+                for candidate in self.repo.list_unresolved(
+                    "client", "user", "live"
+                )
+            ],
+        )
+        engine = StrategyEngine(
+            TradingSettings(mode="live", client_id="client", user_id="user"),
+            self.repo,
+            self.market,
+            self.broker,
+            MagicMock(spec=["assert_owned"]),
+        )
+        engine.tick(at())
+        self.assertEqual(self.orders.get_order_status.call_count, 0)
+        self.assertEqual(self.repo.get_run(1).state, "gtt_active")
+
     def test_gtt_controlled_exit_still_requires_its_submitted_tag(self):
         run, _ = self.poll()
         req = OrderRequest("ownedexit", "option", "D", "SELL", "LIMIT", 500, D(98))

@@ -38,6 +38,23 @@ class GttDomainTests(unittest.TestCase):
                 "gttproduct", "option", "X", "BUY", "LIMIT", 500, D(100)
             )
 
+    def test_new_gtt_states_are_valid_and_unresolved(self):
+        from unittest.mock import MagicMock, patch
+
+        from app.repositories.strategy import STATES, StrategyRepository
+
+        self.assertIn("gtt_active", STATES)
+        self.assertIn("closing", STATES)
+        connection = MagicMock()
+        cursor = connection.cursor.return_value.__enter__.return_value
+        cursor.fetchall.return_value = []
+        with patch(
+            "app.repositories.strategy.get_connection", return_value=connection
+        ):
+            StrategyRepository().list_unresolved("client", "user", "live")
+        sql = cursor.execute.call_args.args[0]
+        self.assertIn("'gtt_active','closing'", sql)
+
     def test_historical_backend_defaults_to_orders(self):
         row = {
             "id": 1,

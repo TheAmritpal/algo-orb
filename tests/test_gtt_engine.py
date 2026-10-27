@@ -93,6 +93,22 @@ class GttExecutionTests(unittest.TestCase):
             legs.append(GttLeg(strategy, status, D(price), side, oid))
         return GttSnapshot("GTT-1", tuple(legs))
 
+    def test_live_gtt_enter_marks_gtt_active_and_does_not_sync(self):
+        live = self.repo.get_or_create(
+            RunKey("client", "user", "reliance_orb", "live", at().date())
+        )
+        live = self.repo.transition(
+            live.id, live.version, "waiting_signal", {"contract": self.market.contract}
+        )
+        self.execution.enter(
+            live, replace(self.request, product="I"), at()
+        )
+        run = self.repo.get_run(live.id)
+        self.assertEqual(run.state, "gtt_active")
+        self.assertFalse(any(i.purpose == "entry" for i in self.repo.intents.values()))
+        self.adapter.snapshot.assert_not_called()
+        self.adapter.child_order.assert_not_called()
+
     def test_creation_reserved_before_submission_and_never_retried(self):
         def fail(record):
             self.assertTrue(self.repo.get_run(self.run.id).entry_reserved)

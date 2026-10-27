@@ -52,7 +52,14 @@ class MemoryRepository:
             and (
                 r.remaining_quantity
                 or r.state
-                in {"entry_pending", "exit_pending", "reconciliation_required", "open"}
+                in {
+                    "entry_pending",
+                    "exit_pending",
+                    "reconciliation_required",
+                    "open",
+                    "gtt_active",
+                    "closing",
+                }
             )
         ]
 

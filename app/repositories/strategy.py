@@ -30,6 +30,8 @@ STATES = {
     "skipped",
     "rejected",
     "reconciliation_required",
+    "gtt_active",
+    "closing",
 }
 ALLOWED = {
     "opening",
@@ -330,7 +332,7 @@ class StrategyRepository:
     def list_unresolved(self, client_id, user_id, mode):
         with transaction() as c:
             c.execute(
-                "SELECT * FROM strategy_runs WHERE client_id=%s AND user_id=%s AND mode=%s AND (remaining_quantity>0 OR state IN ('entry_pending','exit_pending','reconciliation_required','open')) ORDER BY exchange_date,id",
+                "SELECT * FROM strategy_runs WHERE client_id=%s AND user_id=%s AND mode=%s AND (remaining_quantity>0 OR state IN ('entry_pending','exit_pending','reconciliation_required','open','gtt_active','closing')) ORDER BY exchange_date,id",
                 (client_id, user_id, mode),
             )
             return [run_from_row(r) for r in c.fetchall()]

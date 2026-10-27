@@ -55,7 +55,14 @@ class GttExecution:
         # Creation uncertainty remains reserved forever until explicitly reconciled.
         broker_id = self.broker.place(record)
         self.repository.acknowledge(run.id, broker_id)
-        return engine.repository.get_run(run.id)
+        current = engine.repository.get_run(run.id)
+        if run.key.mode == "live":
+            return engine._state(
+                current,
+                "gtt_active",
+                message="GTT placed; Upstox manages exits until 15:14 cleanup",
+            )
+        return current
 
     def _retry_window(self, run, record, now):
         return (

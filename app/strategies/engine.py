@@ -211,13 +211,29 @@ class StrategyEngine:
         )
 
     def _manage(self, run, now):
-        if run.key.mode == "live":
+        new_gtt = (
+            run.key.mode == "live"
+            and run.execution_backend == "gtt"
+            and run.state in {"gtt_active", "closing", "exit_pending"}
+        )
+        parked_new_gtt = (
+            run.key.mode == "live"
+            and run.execution_backend == "gtt"
+            and run.state == "reconciliation_required"
+            and not any(i.purpose == "entry" for i in self._intents(run))
+        )
+        if run.key.mode == "live" and not new_gtt and not parked_new_gtt:
             run, verified = self.order_status.poll(run, now)
             if not verified:
                 return self._fail(
                     run, "Unable to verify order status or position; reconciliation required"
                 )
         if run.execution_backend == "gtt":
+            if new_gtt:
+                # Task 3 wires the 15:14 cleanup here.
+                return run
+            if parked_new_gtt:
+                return run
             if self.gtt is None:
                 return self._fail(run, "GTT recovery adapter unavailable")
             return self.gtt.manage(run, now)

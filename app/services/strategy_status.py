@@ -74,6 +74,10 @@ def get_strategy_status(*, now=None):
             )
         if run.state == "reconciliation_required":
             message = "Broker outcome or remaining exposure needs reconciliation."
+        if run.state == "gtt_active":
+            message = "GTT placed; Upstox manages exits until 15:14 cleanup."
+        if run.state == "closing":
+            message = "Day-end exit in progress."
         if run.key.mode == "live" and not settings.protective_stop_verified:
             message = "Protective-stop support must be verified before live entries. Existing exposure still requires management."
         if run.execution_backend == "gtt":

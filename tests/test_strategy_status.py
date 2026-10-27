@@ -63,6 +63,13 @@ class StatusTests(unittest.TestCase):
         self.assertFalse(result.worker_alive)
         self.assertIn("exposure", result.message)
 
+    def test_gtt_active_and_closing_messages_are_specific(self):
+        for state, fragment in (("gtt_active", "15:14"), ("closing", "exit")):
+            with self.subTest(state=state):
+                self.run.state = state
+                result = self.status(self.run)
+                self.assertIn(fragment, result.message.lower())
+
     def test_current_heartbeat_cannot_hide_invalid_broker_token(self):
         result = self.status(self.run)
         self.assertTrue(result.worker_alive)
