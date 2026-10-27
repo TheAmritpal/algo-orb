@@ -424,76 +424,237 @@ class StrategyRepository:
 
     def apply_order(self, intent_id, order):
         with transaction() as c:
-            c.execute("SELECT run_id FROM strategy_orders WHERE id=%s", (intent_id,))
-            row = c.fetchone()
-            if not row:
-                raise ValueError("Missing order intent")
-            run = _read(c, row["run_id"], True)
-            intent = next(i for i in _intents(c, run.id) if i.id == intent_id)
-            if (
-                order.tag != intent.request.tag
-                or order.requested_quantity != intent.request.quantity
-                or (intent.broker_id and intent.broker_id != order.broker_id)
-            ):
-                raise ValueError("Order identity mismatch")
-            if intent.status in TERMINAL and order.status not in TERMINAL:
-                raise ValueError("Order status regression")
-            for f in order.fills:
-                if f.order_id != order.broker_id:
-                    raise ValueError("Trade order mismatch")
-                c.execute(
-                    "SELECT intent_id,order_id,quantity,price FROM strategy_fills WHERE client_id=%s AND user_id=%s AND mode=%s AND trade_id=%s",
-                    (run.key.client_id, run.key.user_id, run.key.mode, f.trade_id),
-                )
-                prev = c.fetchone()
-                if prev:
-                    if (
-                        prev["intent_id"],
-                        prev["order_id"],
-                        prev["quantity"],
-                        prev["price"],
-                    ) != (intent_id, f.order_id, f.quantity, f.price):
-                        raise ValueError("Conflicting stored trade")
-                else:
-                    c.execute(
-                        "INSERT INTO strategy_fills (intent_id,client_id,user_id,mode,trade_id,order_id,quantity,price) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
-                        (
-                            intent_id,
-                            run.key.client_id,
-                            run.key.user_id,
-                            run.key.mode,
-                            f.trade_id,
-                            f.order_id,
-                            f.quantity,
-                            f.price,
-                        ),
-                    )
+            return self._apply_order(c, intent_id, order)
+
+    def _apply_order(self, c, intent_id, order):
+        c.execute("SELECT run_id FROM strategy_orders WHERE id=%s", (intent_id,))
+        row = c.fetchone()
+        if not row:
+            raise ValueError("Missing order intent")
+        run = _read(c, row["run_id"], True)
+        intent = next(i for i in _intents(c, run.id) if i.id == intent_id)
+        if (
+            order.tag != intent.request.tag
+            or order.requested_quantity != intent.request.quantity
+            or (intent.broker_id and intent.broker_id != order.broker_id)
+        ):
+            raise ValueError("Order identity mismatch")
+        if intent.status in TERMINAL and order.status not in TERMINAL:
+            raise ValueError("Order status regression")
+        for f in order.fills:
+            if f.order_id != order.broker_id:
+                raise ValueError("Trade order mismatch")
             c.execute(
-                "UPDATE strategy_orders SET broker_id=%s,status=%s WHERE id=%s",
-                (order.broker_id, order.status, intent_id),
+                "SELECT intent_id,order_id,quantity,price FROM strategy_fills WHERE client_id=%s AND user_id=%s AND mode=%s AND trade_id=%s",
+                (run.key.client_id, run.key.user_id, run.key.mode, f.trade_id),
             )
-            intents = _intents(c, run.id)
-            run = reduce_fills(run, intents)
-            if run.filled_quantity > run.requested_quantity:
-                raise ValueError("Excess entry fills")
-            _save(c, run, run.version)
-            self._event(
-                c,
-                run.id,
-                "order_status",
-                {
-                    "order_id": order.broker_id,
-                    "status": order.status,
-                    "filled_quantity": order.filled_quantity,
-                },
-            )
-            return run
+            prev = c.fetchone()
+            if prev:
+                if (
+                    prev["intent_id"],
+                    prev["order_id"],
+                    prev["quantity"],
+                    prev["price"],
+                ) != (intent_id, f.order_id, f.quantity, f.price):
+                    raise ValueError("Conflicting stored trade")
+            else:
+                c.execute(
+                    "INSERT INTO strategy_fills (intent_id,client_id,user_id,mode,trade_id,order_id,quantity,price) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+                    (
+                        intent_id,
+                        run.key.client_id,
+                        run.key.user_id,
+                        run.key.mode,
+                        f.trade_id,
+                        f.order_id,
+                        f.quantity,
+                        f.price,
+                    ),
+                )
+        c.execute(
+            "UPDATE strategy_orders SET broker_id=%s,status=%s WHERE id=%s",
+            (order.broker_id, order.status, intent_id),
+        )
+        intents = _intents(c, run.id)
+        run = reduce_fills(run, intents)
+        if run.filled_quantity > run.requested_quantity:
+            raise ValueError("Excess entry fills")
+        _save(c, run, run.version)
+        self._event(
+            c,
+            run.id,
+            "order_status",
+            {
+                "order_id": order.broker_id,
+                "status": order.status,
+                "filled_quantity": order.filled_quantity,
+            },
+        )
+        return run
 
     def record_submission(self, intent_id, broker_id):
         with transaction() as c:
             c.execute(
                 "UPDATE strategy_orders SET broker_id=%s, status='unknown' WHERE id=%s",
                 (broker_id, intent_id),
+            )
+
+    @staticmethod
+    def _fill_set(fills):
+        return {(f.trade_id, f.order_id, f.quantity, f.price) for f in fills}
+
+    def _validate_manual_exit(
+        self, run, intents, entry_intent, entry_order, exit_request, exit_order
+    ):
+        if (
+            run.key.mode != "live"
+            or run.execution_backend != "gtt"
+            or not run.entry_reserved
+            or run.contract is None
+        ):
+            raise ValueError("Manual exit repair requires a live GTT run")
+        if run.state not in {"reconciliation_required", "closed"}:
+            raise ValueError("Run is not awaiting manual reconciliation")
+        if run.requested_quantity != entry_order.requested_quantity:
+            raise ValueError("Entry quantity mismatch")
+        if (
+            entry_intent.broker_id != entry_order.broker_id
+            or entry_intent.request.tag != entry_order.tag
+            or entry_intent.request.quantity != entry_order.requested_quantity
+        ):
+            raise ValueError("Entry order identity mismatch")
+        if entry_intent.status not in {"unknown", "complete"}:
+            raise ValueError("Entry status not repairable")
+        if (
+            entry_order.status != "complete"
+            or entry_order.filled_quantity != entry_order.requested_quantity
+            or sum(f.quantity for f in entry_order.fills)
+            != entry_order.filled_quantity
+            or any(f.order_id != entry_order.broker_id for f in entry_order.fills)
+        ):
+            raise ValueError("Entry must be fully filled")
+        if entry_intent.fills and self._fill_set(
+            entry_intent.fills
+        ) != self._fill_set(entry_order.fills):
+            raise ValueError("Conflicting entry fills")
+        if (
+            exit_request.instrument != run.contract.instrument_key
+            or exit_request.product != "D"
+            or exit_request.side != "SELL"
+            or exit_request.order_type != "LIMIT"
+            or exit_request.quantity != entry_order.filled_quantity
+        ):
+            raise ValueError("Exit request mismatch")
+        if (
+            not exit_order.broker_id
+            or exit_order.tag != exit_request.tag
+            or exit_order.status != "complete"
+            or exit_order.requested_quantity != exit_request.quantity
+            or exit_order.filled_quantity != exit_request.quantity
+            or sum(f.quantity for f in exit_order.fills)
+            != exit_order.filled_quantity
+            or any(f.order_id != exit_order.broker_id for f in exit_order.fills)
+        ):
+            raise ValueError("Exit order mismatch")
+        trade_ids = [f.trade_id for f in entry_order.fills + exit_order.fills]
+        if len(trade_ids) != len(set(trade_ids)):
+            raise ValueError("Duplicate trade evidence")
+        exits = [i for i in intents if i.purpose == "exit"]
+        if exits:
+            existing = exits[-1]
+            if (
+                existing.request.tag != exit_request.tag
+                or existing.request.quantity != exit_request.quantity
+                or self._fill_set(existing.fills)
+                != self._fill_set(exit_order.fills)
+            ):
+                raise ValueError("Conflicting exit fills")
+        elif run.state == "closed":
+            raise ValueError("Closed run missing exit evidence")
+
+    def _manual_exit_summary(self, run, entry_order, exit_order, *, applied):
+        quantity = sum(f.quantity for f in entry_order.fills)
+        average = sum(
+            (f.price * f.quantity for f in entry_order.fills), Decimal(0)
+        ) / quantity
+        return {
+            "applied": applied,
+            "run_id": run.id,
+            "state": "closed",
+            "filled_quantity": quantity,
+            "remaining_quantity": 0,
+            "entry_average": average,
+            "orders": [
+                {
+                    "purpose": "entry",
+                    "order_id": entry_order.broker_id,
+                    "trade_ids": [f.trade_id for f in entry_order.fills],
+                },
+                {
+                    "purpose": "exit",
+                    "order_id": exit_order.broker_id,
+                    "trade_ids": [f.trade_id for f in exit_order.fills],
+                },
+            ],
+        }
+
+    def repair_manual_exit(
+        self, run, entry_order, exit_request, exit_order, *, apply=False
+    ):
+        intents = self.list_intents(run.id)
+        entry_intent = next(
+            (i for i in intents if i.purpose == "entry"), None
+        )
+        if entry_intent is None:
+            raise ValueError("Entry intent missing")
+        self._validate_manual_exit(
+            run, intents, entry_intent, entry_order, exit_request, exit_order
+        )
+        if run.state == "closed" or not apply:
+            return self._manual_exit_summary(
+                run, entry_order, exit_order, applied=False
+            )
+        with transaction() as c:
+            current = _read(c, run.id, True)
+            if current.version != run.version:
+                raise ValueError("Stale strategy run")
+            current_intents = _intents(c, run.id)
+            current_entry = next(
+                (i for i in current_intents if i.purpose == "entry"), None
+            )
+            if current_entry is None:
+                raise ValueError("Entry intent missing")
+            self._validate_manual_exit(
+                current,
+                current_intents,
+                current_entry,
+                entry_order,
+                exit_request,
+                exit_order,
+            )
+            entry_run = self._apply_order(c, current_entry.id, entry_order)
+            exit_intent = self._insert(c, entry_run, "exit", exit_request)
+            flat_run = self._apply_order(c, exit_intent.id, exit_order)
+            flat_run.state = "closed"
+            flat_run.message = "Manual exit 2026-10-26 reconciled"
+            _save(c, flat_run, flat_run.version)
+            self._event(
+                c,
+                run.id,
+                "historical_reconciled",
+                {
+                    "order_id": entry_order.broker_id,
+                    "status": "complete",
+                    "filled_quantity": flat_run.filled_quantity,
+                    "trade_ids": [
+                        f.trade_id
+                        for f in entry_order.fills + exit_order.fills
+                    ],
+                    "reason": "manual exit",
+                },
+            )
+            return self._manual_exit_summary(
+                flat_run, entry_order, exit_order, applied=True
             )
 
     def _event(self, c, run_id, kind, fields):
@@ -515,6 +676,7 @@ class StrategyRepository:
             "previous_close",
             "previous_opening_high",
             "previous_opening_low",
+            "trade_ids",
         }
         fields = {k: v for k, v in fields.items() if k in allowed}
         c.execute(
