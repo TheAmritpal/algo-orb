@@ -247,10 +247,11 @@ before starting `uv run python -m app.cli.run_strategy`. Paper mode still needs 
 valid pinned account token for read-only live market data; all fills are simulated.
 
 Only one worker per broker app/account/mode can hold the MySQL advisory lock.
-Use an external process supervisor and keep the worker available through 15:25 IST.
+Use an external process supervisor and keep the worker available through 15:14 IST.
 SIGINT/SIGTERM stops the loop and preserves unresolved state. Stopping the worker
-does not close NRML positions or arrange a future broker square-off. On restart,
-existing fills and orders are reconciled before considering new entries.
+does not cancel a GTT or close a position; MIS auto-square-off is only a backstop.
+On restart, `gtt_active` and `closing` runs resume the 15:14 cleanup; genuine
+uncertainty remains `reconciliation_required`.
 
 ### Strategy behavior
 
@@ -280,45 +281,36 @@ calendar boundary used for eligibility. This policy follows the September and
 October 2026 broker notices; review future notices for earlier restrictions or
 other contract-specific bans that calendar filtering cannot establish.
 
-`ORB_EXECUTION_BACKEND=gtt` (default) submits a multi-leg Upstox GTT after candle
-confirmation. ENTRY uses `IMMEDIATE` at the validated option ask; Upstox documents
-this as a limit entry, not a guaranteed market fill. TARGET and STOPLOSS rules
-are included with the entry. Both exit triggers are monitored by Upstox, removing
-our worker's polling delay from the normal exit trigger path. This does not
-remove exchange latency, slippage, gaps or the possibility of an unfilled order.
-Market protection is explicitly automatic (`-1`) for applicable GTT legs.
+`ORB_EXECUTION_BACKEND=gtt` (default) submits a multi-leg Upstox GTT with
+**product `I` (MIS/intraday)** after candle confirmation. ENTRY uses `IMMEDIATE`
+at the validated option ask; TARGET and STOPLOSS rules are included with the
+entry. Initial TP/SL are ask +8 / -5 premium points and are not modified after
+the fill. The worker places the GTT once and records the GTT ID. It does not
+poll order status, attach child intents, sync fills, retry the entry, or modify
+the GTT during the day; Upstox manages the entry, target and stop.
 
-Initial TP/SL are ask +8 / -5 premium points. Confirmed average entry fills
-set the final target to average +8 and stop to average -5, with modification
-read-back. Exact levels must fit the contract tick. The worker never submits a
-parallel local TP/SL while GTT exits remain active. An unfilled entry is cancelled
-after a 30-second observation window, subject to confirmed broker outcomes.
-Partial entries whose correctly sized protection cannot be verified are cancelled
-and reconciled, then a controlled exit of confirmed residual exposure is attempted.
+After the GTT acknowledgement the run is `gtt_active`. At **15:14 IST** the
+worker runs one cleanup: it reads the GTT, cancels the parent and any working
+child order, and reads the contract position for product `I`. A flat position
+closes the run. A non-zero position gets one bounded LIMIT SELL and the run is
+marked `closed`; Upstox MIS auto-square-off around 3:20–3:25 PM is the backstop.
+If the GTT read/cancel or the sell submission is uncertain, the run becomes
+`reconciliation_required` and no second sell is submitted. The cleanup is
+idempotent across restarts: a recorded exit order closes without another sell;
+an unrecorded submission fails closed for manual checking.
 
-Known live exchange order IDs also receive an independent status check every
-30 seconds while their run is unresolved (including completed entry orders).
-The worker uses the official SDK's order-details endpoint and stores verified
-statuses, unique fills, and sanitized status/position check events. These checks
-continue when the GTT details endpoint fails. Restart checks immediately; the
-worker must be running, and checks occur on its polling iterations. Existing
-execution reconciliation can read orders more frequently for protection and
-cancellation confirmation. Failed status or position reads block execution
-management until a subsequent check succeeds. A broker position mismatch after
-GTT child reconciliation remains unresolved and flags a possible manual exit;
-the worker does not invent exit fills or submit another sell against a flat
-position. Manual exits still need matched broker trade evidence before the
-application can report a confirmed close or realized P&L.
+The worker must be running at 15:14. If it is down, the MIS position may still
+be auto-squared off, but the GTT exit legs remain valid for 365 days and must be
+cancelled manually. A GTT whose entry never fills also remains active until the
+15:14 cleanup. The 30-second order-status poller remains for ordinary live
+orders, not the GTT strategy. `/strategy/history` shows `gtt_active`, `closing`,
+`closed` and the cleanup events.
 
-GTT parent IDs, generated exchange order IDs, unique trades and mutation intents
-are persisted separately. A successful create/cancel response is not evidence of
-fills or terminal cancellation. Lost creation acknowledgements require manual
-reconciliation and are never automatically retried. At 15:25 IST the running
-worker cancels GTT triggers and working generated orders, verifies their outcomes,
-then attempts to sell only residual exposure. If cancellation is uncertain it
-blocks duplicate sells and reports `reconciliation_required`. A running worker is
-still needed for the timed exit and recovery; GTT triggers may survive shutdown.
-NRML does not provide an intraday auto-square-off guarantee.
+GTT parent IDs and mutation intents are persisted. A successful create/cancel
+response is not evidence of fills or terminal cancellation. Lost creation
+acknowledgements require manual reconciliation and are never automatically
+retried. MIS auto-square-off is a backstop, not the primary exit; the 15:14
+cleanup submits the exit first.
 
 `ORB_EXECUTION_BACKEND=orders` selects the existing ordinary limit-entry,
 broker stop-limit and application-monitored target path. New trades also use
@@ -452,7 +444,9 @@ uncertain order. Restore the original account token and database/worker access,
 then restart to reconcile. Token changes take effect on worker restart. If the
 broker cannot supply sufficient historical evidence, resolve exposure through
 the broker and reconcile the stored records explicitly with an operator rather
-than assuming a fill. Previous-day unresolved runs block new entries.
+than assuming a fill. Previous-day runs in `reconciliation_required` block new
+entries; `gtt_active`/`closing` runs are handled by the 15:14 cleanup and
+`closed` runs do not block.
 
 The strategy dashboard is read-only. It shows mode, range, contract, fill average, premium
 levels, remaining units, daily allowance and worker heartbeat. A heartbeat older
@@ -677,23 +671,28 @@ explicit enablement and configured trading limits. Compose uses `.env.production
 by default, so configure the TOTP values there for production. See
 [deploy/README.md](deploy/README.md) for setup and monitoring.
 
-### GTT entry retries
+### GTT entry policy
 
-An unfilled GTT entry times out after 30 seconds. The worker allows **two
-additional attempts (three total)** on the same contract and original signal,
-only after confirming that the previous parent and generated exchange orders
-are cancelled with zero fills and zero broker exposure. Every retry uses a new
-quote and repeats session, protection, funds and configured risk checks. Stop
-and target remain entry premium minus 5 / plus 8. Retries stop at 15:00 IST.
+The place-once flow does **not** retry an unfilled GTT entry. The GTT remains
+active at Upstox until the 15:14 cleanup, which cancels it if the entry never
+filled. A filled entry keeps the initial −5/+8 target and stop; the worker does
+not modify them after the fill. Rejections and uncertain placement outcomes are
+not retried and require manual reconciliation.
 
-Partial fills follow the existing cancel-and-flatten path, without another
-entry. Rejections and uncertain broker outcomes do not authorize a new entry.
-The attempt budget and timeout authorization survive restarts; an uncertain
-submission is reconciled rather than replayed. No retry follows a filled trade.
-Prior parents, snapshots, mutations and child orders remain in MySQL audit
-history. The active parent is in `strategy_gtts`; previous parents are in
-`strategy_gtt_attempt_history`, with child/mutation rows scoped by attempt.
+Migration **0009** and the `strategy_gtt_attempt_history` table remain in place
+for historical retry audit data. They are not used by the place-once flow.
 
-Stop the worker and apply Alembic migration **0009** before deploying this code.
-Do not reset a day's run or delete GTT journals to retry manually. Downgrading
-0009 after any retry has been used is refused to preserve historical evidence.
+### One-time manual-exit repair
+
+Run `160103` was manually exited on 2026-10-26. The repair records the four
+confirmed trades (`370751`, `370752`, `753152`, `753153`) and closes the run:
+
+```bash
+# Stop the live worker first. Dry run is the default and writes nothing.
+PYTHONPATH=. uv run python -m app.cli.repair_manual_exit
+PYTHONPATH=. uv run python -m app.cli.repair_manual_exit --apply
+```
+
+The command is read-only against Upstox, refuses a non-flat position or a
+running worker, and makes no broker mutations. It is a one-time audit repair,
+not part of the daily flow.

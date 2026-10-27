@@ -296,3 +296,37 @@ To disable only automatic token renewal:
 ```bash
 docker compose stop token-scheduler
 ```
+
+## Place-once GTT and 15:14 cleanup
+
+The worker places one product `I` GTT at the ORB breakout, records the GTT ID,
+and does not poll order status. At **15:14 IST** it cancels the GTT and working
+children, reads the product `I` position, and either closes the run (flat) or
+submits one bounded sell and closes. The worker must be running at 15:14; MIS
+auto-square-off around 3:20–3:25 PM is only a backstop. If the worker is down,
+cancel the GTT manually in Upstox because its exit legs remain valid for 365
+days. Genuine cancellation or exit uncertainty becomes `reconciliation_required`
+and never submits a second sell.
+
+## One-time repair of run 160103
+
+Run 160103 blocks new entries until it is closed. With the worker stopped:
+
+```bash
+docker compose stop worker
+PYTHONPATH=. uv run python -m app.cli.repair_manual_exit
+PYTHONPATH=. uv run python -m app.cli.repair_manual_exit --apply
+```
+
+The command is dry-run by default, refuses a non-flat position or a running
+worker, and makes no broker mutations. Verify the run is `closed` with 1000
+filled, 0 remaining and entry average 45.775. Then deploy the new code and
+restart the worker after 15:30 IST:
+
+```bash
+docker compose build web
+docker compose run --rm --no-deps web alembic upgrade head
+docker compose up -d --no-deps --force-recreate web token-scheduler worker
+```
+
+Do not run an unqualified `docker compose up -d` while reconciling exposure.
