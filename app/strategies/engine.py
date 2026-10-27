@@ -230,8 +230,9 @@ class StrategyEngine:
                 )
         if run.execution_backend == "gtt":
             if new_gtt:
-                # Task 3 wires the 15:14 cleanup here.
-                return run
+                if self.gtt is None:
+                    return self._fail(run, "GTT cleanup adapter unavailable")
+                return self.gtt.cleanup(run, now)
             if parked_new_gtt:
                 return run
             if self.gtt is None:

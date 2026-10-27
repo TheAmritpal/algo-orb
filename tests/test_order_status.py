@@ -223,12 +223,16 @@ class OrderStatusTests(unittest.TestCase):
                 )
             ],
         )
+        from tests.gtt_helpers import MemoryGttRepository
+
         engine = StrategyEngine(
             TradingSettings(mode="live", client_id="client", user_id="user"),
             self.repo,
             self.market,
             self.broker,
             MagicMock(spec=["assert_owned"]),
+            gtt_broker=MagicMock(),
+            gtt_repository=MemoryGttRepository(self.repo),
         )
         engine.tick(at())
         self.assertEqual(self.orders.get_order_status.call_count, 0)

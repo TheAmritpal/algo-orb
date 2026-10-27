@@ -489,6 +489,13 @@ class StrategyRepository:
             )
             return run
 
+    def record_submission(self, intent_id, broker_id):
+        with transaction() as c:
+            c.execute(
+                "UPDATE strategy_orders SET broker_id=%s, status='unknown' WHERE id=%s",
+                (broker_id, intent_id),
+            )
+
     def _event(self, c, run_id, kind, fields):
         allowed = {
             "order_id",

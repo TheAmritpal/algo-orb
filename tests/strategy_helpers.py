@@ -120,6 +120,9 @@ class MemoryRepository:
         self.runs[r.id] = new
         return deepcopy(new)
 
+    def record_submission(self, intent_id, broker_id):
+        self.intents[intent_id].broker_id = broker_id
+
     def append_event(self, id, kind, fields):
         self.events.append((id, kind, fields))
 

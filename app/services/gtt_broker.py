@@ -74,10 +74,12 @@ class GttBroker:
             record.broker_id,
         )
 
-    def snapshot(self, record):
+    def status(self, record):
         data = sdk_data(self.api.get_gtt_order_details, gtt_order_id=record.broker_id)
-        if not isinstance(data, list) or len(data) != 1:
+        if not isinstance(data, list) or len(data) > 1:
             raise TradingUnavailable("GTT identity ambiguous")
+        if not data:
+            return None
         raw = data[0]
         req = record.request
         if (
@@ -107,6 +109,12 @@ class GttBroker:
         if entry.price != req.price:
             raise ValueError("GTT entry price changed externally")
         return snapshot
+
+    def snapshot(self, record):
+        result = self.status(record)
+        if result is None:
+            raise TradingUnavailable("GTT identity ambiguous")
+        return result
 
     def child_order(self, record, leg, request):
         """Read fills only for the exact exchange order linked by this GTT leg."""

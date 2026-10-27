@@ -1,5 +1,6 @@
 """GTT orchestration: broker triggers exits; application reconciles ownership."""
 
+from dataclasses import replace
 from datetime import time
 from decimal import Decimal
 from uuid import uuid4
@@ -7,8 +8,10 @@ from uuid import uuid4
 from app.services.trading_broker import (
     EntryValidationError,
     PositionMismatchError,
+    bounded_sell,
     validate_entry,
 )
+from app.services.trading_market import BrokerOrderNotFound
 from app.strategies.gtt_models import LEG_TERMINAL
 from app.strategies.models import TERMINAL, OrderRequest
 from app.strategies.rules import IST, premium_levels
@@ -63,6 +66,154 @@ class GttExecution:
                 message="GTT placed; Upstox manages exits until 15:14 cleanup",
             )
         return current
+
+    def cleanup(self, run, now):
+        """Cancel the day's GTT and flatten once, at 15:14 IST."""
+        engine = self.engine
+        if run.state == "closed":
+            return run
+        if now.astimezone(IST).time() < time(15, 14):
+            return run
+        if run.state in {"closing", "exit_pending"}:
+            return self._resume_cleanup(run)
+        if run.state != "gtt_active":
+            return run
+        record = self.repository.get(run.id)
+        if not record.broker_id:
+            return engine._fail(run, "GTT identity unknown; reconciliation required")
+        try:
+            snapshot = self.broker.status(record)
+        except BrokerOrderNotFound:
+            snapshot = None
+        except Exception:  # noqa: BLE001 -- never expose broker/SQL secrets
+            return engine._fail(
+                run, "GTT cleanup read failed; reconciliation required"
+            )
+        if snapshot is not None and not snapshot.terminal:
+            try:
+                self.broker.cancel(record)
+            except BrokerOrderNotFound:
+                pass
+            except Exception:  # noqa: BLE001 -- never expose broker/SQL secrets
+                return engine._fail(
+                    run, "GTT cancellation uncertain; reconciliation required"
+                )
+            for leg in snapshot.legs:
+                if leg.order_id and leg.status in {"OPEN", "TRIGGERED", "PENDING"}:
+                    try:
+                        engine.broker.cancel(leg.order_id)
+                    except BrokerOrderNotFound:
+                        pass
+                    except Exception:  # noqa: BLE001 -- never expose secrets
+                        return engine._fail(
+                            run,
+                            "GTT child cancellation uncertain; reconciliation required",
+                        )
+            try:
+                after = self.broker.status(record)
+            except BrokerOrderNotFound:
+                after = None
+            except Exception:  # noqa: BLE001 -- never expose broker/SQL secrets
+                return engine._fail(
+                    run, "GTT cancellation unverified; reconciliation required"
+                )
+            if after is not None and any(
+                leg.status not in LEG_TERMINAL for leg in after.legs
+            ):
+                return engine._fail(
+                    run,
+                    "GTT parent or children still active; reconciliation required",
+                )
+        try:
+            actual = sum(
+                p.quantity
+                for p in engine.broker.positions()
+                if p.instrument == run.contract.instrument_key and p.product == "I"
+            )
+        except Exception:  # noqa: BLE001 -- never expose broker/SQL secrets
+            return engine._fail(
+                run, "Position not verified; reconciliation required"
+            )
+        engine.repository.append_event(
+            run.id,
+            "position_checked",
+            {
+                "instrument": run.contract.instrument_key,
+                "expected_quantity": run.remaining_quantity,
+                "actual_quantity": actual,
+                "status": "matched"
+                if actual == run.remaining_quantity
+                else "mismatch",
+            },
+        )
+        if actual == 0:
+            return engine._state(run, "closed", message="Day-end cleanup: flat")
+        if actual < 0:
+            return engine._fail(
+                run, "Unexpected short position; reconciliation required"
+            )
+        try:
+            quote = engine._quote(run, now)
+            slip = (
+                engine.settings.limits.max_slippage
+                if engine.settings.limits
+                else Decimal(1)
+            )
+            price = bounded_sell(quote, run.contract, slip)
+        except Exception:  # noqa: BLE001 -- never expose broker/SQL secrets
+            return engine._fail(
+                run, "Exit pricing unavailable; reconciliation required"
+            )
+        run = engine._state(
+            run,
+            "closing",
+            filled_quantity=actual,
+            remaining_quantity=actual,
+            message="Day-end exit in progress",
+        )
+        request = replace(
+            engine._request(run, "SELL", actual, price), product="I"
+        )
+        intent = engine.repository.create_intent(
+            run.id, run.version, "exit", request
+        )
+        run = engine.repository.get_run(run.id)
+        engine.ownership.assert_owned()
+        try:
+            order = engine.broker.submit(request)
+        except Exception:  # noqa: BLE001 -- never expose broker/SQL secrets
+            return engine._fail(
+                run, "Exit submission uncertain; reconciliation required"
+            )
+        engine.repository.record_submission(intent.id, order.broker_id)
+        engine.repository.append_event(
+            run.id,
+            "cleanup_exit_submitted",
+            {
+                "order_id": order.broker_id,
+                "quantity": actual,
+                "reason": "15:14 day-end cleanup",
+            },
+        )
+        return engine._state(
+            engine.repository.get_run(run.id),
+            "closed",
+            remaining_quantity=0,
+            message="Exit submitted at 15:14; MIS auto-square-off backstop",
+        )
+
+    def _resume_cleanup(self, run):
+        exits = [i for i in self.engine._intents(run) if i.purpose == "exit"]
+        if exits and exits[-1].broker_id:
+            return self.engine._state(
+                run,
+                "closed",
+                remaining_quantity=0,
+                message="Day-end exit previously submitted; broker backstop",
+            )
+        return self.engine._fail(
+            run, "Exit submission outcome unknown; reconciliation required"
+        )
 
     def _retry_window(self, run, record, now):
         return (

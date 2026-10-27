@@ -1,18 +1,46 @@
 """Read-only market adapter for the official SDK; no order submissions."""
 
+import json
+import re
 import time as clock
 from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 from threading import Lock
 
 import upstox_client as sdk
+from upstox_client.rest import ApiException
 
 from app.strategies.models import Candle, Contract, MarketSnapshot, Quote, money
 from app.strategies.rules import IST, UNDERLYING
 
 
 class TradingUnavailable(RuntimeError):
+    def __init__(self, message, *, http_status=None, broker_code=None):
+        super().__init__(message)
+        self.http_status = http_status
+        self.broker_code = broker_code
+
+
+class BrokerOrderNotFound(TradingUnavailable):
     pass
+
+
+def _failure_metadata(exc):
+    status = getattr(exc, "status", None)
+    http_status = status if type(status) is int and 100 <= status <= 599 else None
+    broker_code = None
+    body = getattr(exc, "body", None)
+    if isinstance(body, (str, bytes)) and len(body) <= 65536:
+        try:
+            payload = json.loads(body)
+            errors = payload.get("errors") if isinstance(payload, dict) else None
+            if isinstance(errors, list) and errors and isinstance(errors[0], dict):
+                code = errors[0].get("errorCode", errors[0].get("error_code"))
+                if isinstance(code, str) and re.fullmatch(r"UDAPI[0-9]{1,12}", code):
+                    broker_code = code
+        except (ValueError, TypeError, UnicodeError):
+            pass
+    return http_status, broker_code
 
 
 _gate = Lock()
@@ -27,6 +55,19 @@ def sdk_data(method, *args, **kwargs):
         _last = clock.monotonic()
     try:
         result = method(*args, _request_timeout=(2, 3), **kwargs)
+    except ApiException as exc:
+        http_status, broker_code = _failure_metadata(exc)
+        if (http_status, broker_code) == (404, "UDAPI100010"):
+            raise BrokerOrderNotFound(
+                "Broker order record not found",
+                http_status=http_status,
+                broker_code=broker_code,
+            ) from None
+        raise TradingUnavailable(
+            "Broker request failed; mutation outcome may be uncertain",
+            http_status=http_status,
+            broker_code=broker_code,
+        ) from None
     except Exception:  # noqa: BLE001 -- fail closed without leaking broker/SQL secrets
         raise TradingUnavailable(
             "Broker request failed; mutation outcome may be uncertain"

@@ -92,6 +92,42 @@ class GttBrokerTests(unittest.TestCase):
         )
         self.assertFalse(self.broker.snapshot(record).terminal)
 
+    def test_status_returns_none_for_missing_gtt(self):
+        self.api.get_gtt_order_details.return_value = N(status="success", data=[])
+        self.assertIsNone(self.broker.status(self.record))
+
+    def test_status_accepts_matching_product_i(self):
+        request = OrderRequest(
+            "gtttest", "NSE_FO|123", "I", "BUY", "LIMIT", 500, D(100)
+        )
+        record = GttRecord(1, request, D(90), D(118), datetime.now(UTC), "GTT-123")
+        raw = N(
+            gtt_order_id="GTT-123",
+            type="MULTIPLE",
+            quantity=500,
+            product="I",
+            instrument_token="NSE_FO|123",
+            rules=[
+                N(
+                    strategy=s,
+                    status="SCHEDULED",
+                    trigger_price=p,
+                    transaction_type=side,
+                    order_id=None,
+                    trigger_type="IMMEDIATE",
+                )
+                for s, p, side in [
+                    ("ENTRY", 100, "BUY"),
+                    ("TARGET", 118, "SELL"),
+                    ("STOPLOSS", 90, "SELL"),
+                ]
+            ],
+        )
+        self.api.get_gtt_order_details.return_value = N(
+            status="success", data=[raw]
+        )
+        self.assertFalse(self.broker.status(record).terminal)
+
     def test_creation_never_retries_and_sanitizes_exception(self):
         self.api.place_gtt_order.side_effect = TimeoutError("private-token")
         with self.assertRaisesRegex(RuntimeError, "uncertain") as caught:

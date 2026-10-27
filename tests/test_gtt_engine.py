@@ -1,12 +1,14 @@
 import unittest
 from dataclasses import replace
 from decimal import Decimal as D
+from types import SimpleNamespace as N
 from unittest.mock import MagicMock
 
 from app.core.trading import TradingSettings
 from app.services.paper_broker import PaperBroker
+from app.services.trading_market import BrokerOrderNotFound
 from app.strategies.engine import StrategyEngine
-from app.strategies.gtt_models import GttLeg, GttSnapshot
+from app.strategies.gtt_models import GttLeg, GttRecord, GttSnapshot
 from app.strategies.models import (
     BrokerOrder,
     BrokerPosition,
@@ -471,3 +473,157 @@ class GttIntegrationTests(unittest.TestCase):
             sum(i.purpose == "stop" for i in self.repo.intents.values()), 1
         )
         self.assertFalse(any(i.purpose == "exit" for i in self.repo.intents.values()))
+
+
+class LiveGttCleanupTests(unittest.TestCase):
+    def setUp(self):
+        self.repo = MemoryRepository()
+        self.gtts = MemoryGttRepository(self.repo)
+        self.market = FakeMarket()
+        self.live_broker = MagicMock()
+        self.live_broker.positions.return_value = []
+        self.live_broker.submit.return_value = N(broker_id="exit1")
+        self.adapter = MagicMock()
+        self.engine = StrategyEngine(
+            TradingSettings(
+                mode="live",
+                client_id="client",
+                user_id="user",
+                execution_backend="gtt",
+            ),
+            self.repo,
+            self.market,
+            self.live_broker,
+            MagicMock(spec=["assert_owned"]),
+            gtt_broker=self.adapter,
+            gtt_repository=self.gtts,
+        )
+        self.execution = self.engine.gtt
+        run = self.repo.get_or_create(
+            RunKey("client", "user", "reliance_orb", "live", at().date())
+        )
+        self.run = self.repo.transition(
+            run.id,
+            run.version,
+            "gtt_active",
+            {
+                "contract": self.market.contract,
+                "execution_backend": "gtt",
+                "requested_quantity": 500,
+                "entry_reserved": True,
+            },
+        )
+        self.request = OrderRequest(
+            "entrygtt", "option", "I", "BUY", "LIMIT", 500, D(100)
+        )
+        self.gtts.records[self.run.id] = GttRecord(
+            self.run.id, self.request, D(95), D(108), at(), "GTT-1"
+        )
+        self.market.move(at(15, 14))
+
+    def snapshot(self, *, terminal=False):
+        if terminal:
+            return GttSnapshot(
+                "GTT-1",
+                (
+                    GttLeg("ENTRY", "COMPLETED", D(100), "BUY", "entry"),
+                    GttLeg("TARGET", "CANCELLED", D(108), "SELL"),
+                    GttLeg("STOPLOSS", "CANCELLED", D(95), "SELL"),
+                ),
+            )
+        return GttSnapshot(
+            "GTT-1",
+            (
+                GttLeg("ENTRY", "OPEN", D(100), "BUY", "entry"),
+                GttLeg("TARGET", "SCHEDULED", D(108), "SELL"),
+                GttLeg("STOPLOSS", "SCHEDULED", D(95), "SELL"),
+            ),
+        )
+
+    def test_cleanup_before_1514_does_nothing(self):
+        self.adapter.status.return_value = self.snapshot(terminal=True)
+        run = self.execution.cleanup(self.repo.get_run(self.run.id), at(15, 13))
+        self.assertEqual(run.state, "gtt_active")
+        self.adapter.status.assert_not_called()
+        self.adapter.cancel.assert_not_called()
+        self.live_broker.submit.assert_not_called()
+
+    def test_cleanup_flat_cancels_parent_and_children_then_closes(self):
+        self.adapter.status.side_effect = [
+            self.snapshot(),
+            self.snapshot(terminal=True),
+        ]
+        run = self.execution.cleanup(self.repo.get_run(self.run.id), at(15, 14))
+        self.assertEqual(run.state, "closed")
+        self.adapter.cancel.assert_called_once()
+        self.live_broker.cancel.assert_called_once_with("entry")
+        self.live_broker.submit.assert_not_called()
+
+    def test_cleanup_open_position_submits_one_i_sell_and_closes(self):
+        self.adapter.status.return_value = self.snapshot(terminal=True)
+        self.live_broker.positions.return_value = [
+            BrokerPosition("option", "I", 500)
+        ]
+        run = self.execution.cleanup(self.repo.get_run(self.run.id), at(15, 14))
+        self.assertEqual(
+            (run.state, run.filled_quantity, run.remaining_quantity),
+            ("closed", 500, 0),
+        )
+        request = self.live_broker.submit.call_args.args[0]
+        self.assertEqual(
+            (request.product, request.side, request.quantity), ("I", "SELL", 500)
+        )
+        exits = [i for i in self.repo.intents.values() if i.purpose == "exit"]
+        self.assertEqual(exits[-1].broker_id, "exit1")
+
+    def test_cleanup_cancel_uncertainty_blocks_without_sell(self):
+        self.adapter.status.return_value = self.snapshot()
+        self.adapter.cancel.side_effect = TimeoutError("secret")
+        run = self.execution.cleanup(self.repo.get_run(self.run.id), at(15, 14))
+        self.assertEqual(run.state, "reconciliation_required")
+        self.live_broker.submit.assert_not_called()
+
+    def test_cleanup_submit_uncertainty_blocks_and_never_resubmits(self):
+        self.adapter.status.return_value = self.snapshot(terminal=True)
+        self.live_broker.positions.return_value = [
+            BrokerPosition("option", "I", 500)
+        ]
+        self.live_broker.submit.side_effect = TimeoutError("secret")
+        run = self.execution.cleanup(self.repo.get_run(self.run.id), at(15, 14))
+        self.assertEqual(run.state, "reconciliation_required")
+        self.assertEqual(self.live_broker.submit.call_count, 1)
+        self.execution.cleanup(self.repo.get_run(self.run.id), at(15, 14))
+        self.assertEqual(self.live_broker.submit.call_count, 1)
+
+    def test_cleanup_restart_with_recorded_exit_closes_without_second_sell(self):
+        run = self.repo.get_run(self.run.id)
+        run = self.repo.transition(
+            run.id,
+            run.version,
+            "closing",
+            {"filled_quantity": 500, "remaining_quantity": 500},
+        )
+        request = OrderRequest(
+            "exitgtt", "option", "I", "SELL", "LIMIT", 500, D(98)
+        )
+        intent = self.repo.create_intent(run.id, run.version, "exit", request)
+        self.repo.intents[intent.id].broker_id = "exit1"
+        run = self.execution.cleanup(self.repo.get_run(run.id), at(15, 14))
+        self.assertEqual(run.state, "closed")
+        self.live_broker.submit.assert_not_called()
+
+    def test_cleanup_restart_without_broker_id_fails_closed(self):
+        run = self.repo.get_run(self.run.id)
+        run = self.repo.transition(
+            run.id,
+            run.version,
+            "closing",
+            {"filled_quantity": 500, "remaining_quantity": 500},
+        )
+        request = OrderRequest(
+            "exitgtt", "option", "I", "SELL", "LIMIT", 500, D(98)
+        )
+        self.repo.create_intent(run.id, run.version, "exit", request)
+        run = self.execution.cleanup(self.repo.get_run(run.id), at(15, 14))
+        self.assertEqual(run.state, "reconciliation_required")
+        self.live_broker.submit.assert_not_called()

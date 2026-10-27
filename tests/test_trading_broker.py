@@ -1,11 +1,15 @@
+import json
 import unittest
 from dataclasses import replace
 from decimal import Decimal as D
 from types import SimpleNamespace as N
 from unittest.mock import MagicMock
 
+from upstox_client.rest import ApiException
+
 from app.core.trading import TradingSettings
 from app.services.trading_broker import Broker, TradingUnavailable, validate_entry
+from app.services.trading_market import BrokerOrderNotFound
 from app.strategies.models import EntryLimits, OrderIntent, OrderRequest, Quote
 from tests.test_strategy_rules import at, contract
 
@@ -56,6 +60,24 @@ class BrokerTests(unittest.TestCase):
         )
         result = self.broker.reconcile(intent, verify_tag=False)
         self.assertEqual(result.status, "complete")
+
+    def test_order_not_found_is_distinguishable_and_sanitized(self):
+        body = json.dumps(
+            {"errors": [{"errorCode": "UDAPI100010", "message": "Order not found"}]}
+        )
+        response = N(
+            status=404,
+            reason="Not Found",
+            data=body,
+            getheaders=lambda: {},
+        )
+        self.api.get_order_status.side_effect = ApiException(http_resp=response)
+        intent = OrderIntent(1, 1, "entry", self.request, at(), broker_id="o1")
+        with self.assertRaises(BrokerOrderNotFound) as raised:
+            self.broker.reconcile(intent, verify_tag=False)
+        self.assertEqual(raised.exception.http_status, 404)
+        self.assertEqual(raised.exception.broker_code, "UDAPI100010")
+        self.assertNotIn("Order not found", str(raised.exception))
 
     def test_timeout_is_unknown_and_never_retried(self):
         self.api.place_order.side_effect = TimeoutError("secret")
