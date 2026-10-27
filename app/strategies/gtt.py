@@ -57,22 +57,18 @@ class GttExecution:
             )
         # Creation uncertainty remains reserved forever until explicitly reconciled.
         broker_id = self.broker.place(record)
-        self.repository.acknowledge(run.id, broker_id)
-        current = engine.repository.get_run(run.id)
-        if run.key.mode == "live":
-            return engine._state(
-                current,
-                "gtt_active",
-                message="GTT placed; Upstox manages exits until 15:14 cleanup",
-            )
-        return current
+        self.repository.acknowledge(
+            run.id, broker_id, activate=run.key.mode == "live"
+        )
+        return engine.repository.get_run(run.id)
 
     def cleanup(self, run, now):
         """Cancel the day's GTT and flatten once, at 15:14 IST."""
         engine = self.engine
         if run.state == "closed":
             return run
-        if now.astimezone(IST).time() < time(15, 14):
+        local = now.astimezone(IST)
+        if run.key.exchange_date >= local.date() and local.time() < time(15, 14):
             return run
         if run.state in {"closing", "exit_pending"}:
             return self._resume_cleanup(run)

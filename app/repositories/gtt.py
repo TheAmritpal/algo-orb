@@ -187,9 +187,9 @@ class GttRepository:
             _save(c, current, current.version)
             return record
 
-    def acknowledge(self, run_id, broker_id):
+    def acknowledge(self, run_id, broker_id, *, activate=False):
         with transaction() as c:
-            _read(c, run_id, True)
+            run = _read(c, run_id, True)
             c.execute(
                 "SELECT broker_id FROM strategy_gtts WHERE run_id=%s FOR UPDATE",
                 (run_id,),
@@ -205,6 +205,12 @@ class GttRepository:
                 "UPDATE strategy_gtt_mutations SET status='confirmed' WHERE run_id=%s AND attempt=(SELECT attempt FROM strategy_gtts WHERE run_id=%s) AND kind='create' AND status='pending'",
                 (run_id, run_id),
             )
+            if activate:
+                run.state = "gtt_active"
+                run.message = (
+                    "GTT placed; Upstox manages exits until 15:14 cleanup"
+                )
+                _save(c, run, run.version)
 
     def mutation(self, run_id, kind, fields):
         if kind not in {"modify", "cancel", "cancel_child"}:

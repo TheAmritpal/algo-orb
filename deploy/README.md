@@ -209,10 +209,10 @@ Use this sequence on the production server, outside an active position:
    docker compose logs --tail 100 worker
    ```
 
-10. Supervise fresh quotes and the 09:15 opening-range data, then entry fills
-    and protective GTT legs. Monitor through the 15:25 exit and reconciliation;
-    confirm zero remaining exposure, pending orders and active exit triggers.
-    Do not retry an uncertain order manually before checking its broker status.
+10. Supervise fresh quotes and the 09:15 opening-range data, then the single
+    product `I` GTT. Monitor through the 15:14 cleanup; confirm the GTT is
+    cancelled, the position is flat, and no working child order remains. Do not
+    retry an uncertain order manually before checking its broker status.
 
 For an emergency, stop the worker to halt further strategy submissions, then
 manage and reconcile positions/orders/GTTs directly in Upstox. Stopping the

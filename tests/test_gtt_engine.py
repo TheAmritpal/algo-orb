@@ -1,8 +1,9 @@
 import unittest
 from dataclasses import replace
+from datetime import timedelta
 from decimal import Decimal as D
 from types import SimpleNamespace as N
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from app.core.trading import TradingSettings
 from app.services.paper_broker import PaperBroker
@@ -110,6 +111,24 @@ class GttExecutionTests(unittest.TestCase):
         self.assertFalse(any(i.purpose == "entry" for i in self.repo.intents.values()))
         self.adapter.snapshot.assert_not_called()
         self.adapter.child_order.assert_not_called()
+
+    def test_live_gtt_activation_is_atomic_with_acknowledgement(self):
+        live = self.repo.get_or_create(
+            RunKey("client", "user", "reliance_orb", "live", at().date())
+        )
+        live = self.repo.transition(
+            live.id, live.version, "waiting_signal", {"contract": self.market.contract}
+        )
+        with patch.object(
+            self.engine, "_state", side_effect=RuntimeError("boom")
+        ):
+            try:
+                self.execution.enter(
+                    live, replace(self.request, product="I"), at()
+                )
+            except RuntimeError:
+                pass
+        self.assertEqual(self.repo.get_run(live.id).state, "gtt_active")
 
     def test_creation_reserved_before_submission_and_never_retried(self):
         def fail(record):
@@ -547,6 +566,21 @@ class LiveGttCleanupTests(unittest.TestCase):
         self.adapter.status.assert_not_called()
         self.adapter.cancel.assert_not_called()
         self.live_broker.submit.assert_not_called()
+
+    def test_prior_day_gtt_cleanup_runs_immediately_on_restart(self):
+        self.repo.runs[self.run.id].key = RunKey(
+            "client",
+            "user",
+            "reliance_orb",
+            "live",
+            at().date() - timedelta(days=1),
+        )
+        self.adapter.status.return_value = self.snapshot(terminal=True)
+        self.live_broker.positions.return_value = []
+        run = self.execution.cleanup(
+            self.repo.get_run(self.run.id), at(9, 45)
+        )
+        self.assertEqual(run.state, "closed")
 
     def test_cleanup_flat_cancels_parent_and_children_then_closes(self):
         self.adapter.status.side_effect = [

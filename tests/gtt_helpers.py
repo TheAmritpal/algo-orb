@@ -53,7 +53,7 @@ class MemoryGttRepository:
         }
         return self.get(run.id)
 
-    def acknowledge(self, run_id, broker_id):
+    def acknowledge(self, run_id, broker_id, *, activate=False):
         self.records[run_id].broker_id = broker_id
         for m in self.mutations.values():
             if (
@@ -62,6 +62,18 @@ class MemoryGttRepository:
                 and m.get("attempt", 1) == self.records[run_id].attempt
             ):
                 m["status"] = "confirmed"
+        if activate:
+            current = self.repository.get_run(run_id)
+            self.repository.transition(
+                run_id,
+                current.version,
+                "gtt_active",
+                {
+                    "message": (
+                        "GTT placed; Upstox manages exits until 15:14 cleanup"
+                    )
+                },
+            )
 
     def authorize_retry(self, run, record):
         assert not run.filled_quantity and not run.remaining_quantity
