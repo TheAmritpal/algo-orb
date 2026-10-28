@@ -210,7 +210,7 @@ Use this sequence on the production server, outside an active position:
    ```
 
 10. Supervise fresh quotes and the 09:15 opening-range data, then the single
-    product `I` GTT. Monitor through the 15:14 cleanup; confirm the GTT is
+    product `D` GTT. Monitor through the 15:14 cleanup; confirm the GTT is
     cancelled, the position is flat, and no working child order remains. Do not
     retry an uncertain order manually before checking its broker status.
 
@@ -299,14 +299,15 @@ docker compose stop token-scheduler
 
 ## Place-once GTT and 15:14 cleanup
 
-The worker places one product `I` GTT at the ORB breakout, records the GTT ID,
+The worker places one product `D` GTT at the ORB breakout, records the GTT ID,
 and does not poll order status. At **15:14 IST** it cancels the GTT and working
-children, reads the product `I` position, and either closes the run (flat) or
-submits one bounded sell and closes. The worker must be running at 15:14; MIS
-auto-square-off around 3:20–3:25 PM is only a backstop. If the worker is down,
-cancel the GTT manually in Upstox because its exit legs remain valid for 365
-days. Genuine cancellation or exit uncertainty becomes `reconciliation_required`
-and never submits a second sell.
+children, reads the product `D` position, and either closes the run (flat) or
+submits one bounded sell in the same product and closes. Upstox does not allow
+intraday (MIS) BUY orders for options, so delivery is required; there is no MIS
+auto-square-off backstop. The worker must be running at 15:14. If the worker is
+down, cancel the GTT manually in Upstox and manage the delivery position because
+its exit legs remain valid for 365 days. Genuine cancellation or exit uncertainty
+becomes `reconciliation_required` and never submits a second sell.
 
 ## One-time repair of run 160103
 

@@ -64,11 +64,8 @@ class StrategyEngine:
         current = self.repository.get_run(run.id)
         return self._state(current, "reconciliation_required", message=reason)
 
-    def _entry_product(self):
-        if self.settings.mode == "live" and self.settings.execution_backend == "gtt":
-            return "I"
-        return "D"
-
+    # Upstox rejects intraday (MIS) BUY orders for options, so entries and their
+    # GTT exit legs use delivery product D.
     def _request(
         self,
         run,
@@ -493,13 +490,7 @@ class StrategyEngine:
             run = self._submit(
                 run,
                 "entry",
-                self._request(
-                    run,
-                    "BUY",
-                    selected.quantity,
-                    price,
-                    product=self._entry_product(),
-                ),
+                self._request(run, "BUY", selected.quantity, price),
             )
             if run.filled_quantity:
                 self._manage(run, now)

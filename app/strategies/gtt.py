@@ -1,6 +1,5 @@
 """GTT orchestration: broker triggers exits; application reconciles ownership."""
 
-from dataclasses import replace
 from datetime import time
 from decimal import Decimal
 from uuid import uuid4
@@ -121,10 +120,12 @@ class GttExecution:
                     "GTT parent or children still active; reconciliation required",
                 )
         try:
+            product = record.request.product
             actual = sum(
                 p.quantity
                 for p in engine.broker.positions()
-                if p.instrument == run.contract.instrument_key and p.product == "I"
+                if p.instrument == run.contract.instrument_key
+                and p.product == product
             )
         except Exception:  # noqa: BLE001 -- never expose broker/SQL secrets
             return engine._fail(
@@ -167,9 +168,7 @@ class GttExecution:
             remaining_quantity=actual,
             message="Day-end exit in progress",
         )
-        request = replace(
-            engine._request(run, "SELL", actual, price), product="I"
-        )
+        request = engine._request(run, "SELL", actual, price, product=product)
         intent = engine.repository.create_intent(
             run.id, run.version, "exit", request
         )
@@ -195,7 +194,7 @@ class GttExecution:
             engine.repository.get_run(run.id),
             "closed",
             remaining_quantity=0,
-            message="Exit submitted at 15:14; MIS auto-square-off backstop",
+            message="Exit submitted at 15:14; delivery cleanup submitted",
         )
 
     def _resume_cleanup(self, run):

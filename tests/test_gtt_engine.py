@@ -13,6 +13,7 @@ from app.strategies.gtt_models import GttLeg, GttRecord, GttSnapshot
 from app.strategies.models import (
     BrokerOrder,
     BrokerPosition,
+    EntryLimits,
     Fill,
     OrderRequest,
     RunKey,
@@ -103,9 +104,7 @@ class GttExecutionTests(unittest.TestCase):
         live = self.repo.transition(
             live.id, live.version, "waiting_signal", {"contract": self.market.contract}
         )
-        self.execution.enter(
-            live, replace(self.request, product="I"), at()
-        )
+        self.execution.enter(live, self.request, at())
         run = self.repo.get_run(live.id)
         self.assertEqual(run.state, "gtt_active")
         self.assertFalse(any(i.purpose == "entry" for i in self.repo.intents.values()))
@@ -123,9 +122,7 @@ class GttExecutionTests(unittest.TestCase):
             self.engine, "_state", side_effect=RuntimeError("boom")
         ):
             try:
-                self.execution.enter(
-                    live, replace(self.request, product="I"), at()
-                )
+                self.execution.enter(live, self.request, at())
             except RuntimeError:
                 pass
         self.assertEqual(self.repo.get_run(live.id).state, "gtt_active")
@@ -533,7 +530,7 @@ class LiveGttCleanupTests(unittest.TestCase):
             },
         )
         self.request = OrderRequest(
-            "entrygtt", "option", "I", "BUY", "LIMIT", 500, D(100)
+            "entrygtt", "option", "D", "BUY", "LIMIT", 500, D(100)
         )
         self.gtts.records[self.run.id] = GttRecord(
             self.run.id, self.request, D(95), D(108), at(), "GTT-1"
@@ -593,10 +590,10 @@ class LiveGttCleanupTests(unittest.TestCase):
         self.live_broker.cancel.assert_called_once_with("entry")
         self.live_broker.submit.assert_not_called()
 
-    def test_cleanup_open_position_submits_one_i_sell_and_closes(self):
+    def test_cleanup_open_position_submits_one_sell_in_gtt_product_and_closes(self):
         self.adapter.status.return_value = self.snapshot(terminal=True)
         self.live_broker.positions.return_value = [
-            BrokerPosition("option", "I", 500)
+            BrokerPosition("option", "D", 500)
         ]
         run = self.execution.cleanup(self.repo.get_run(self.run.id), at(15, 14))
         self.assertEqual(
@@ -605,7 +602,7 @@ class LiveGttCleanupTests(unittest.TestCase):
         )
         request = self.live_broker.submit.call_args.args[0]
         self.assertEqual(
-            (request.product, request.side, request.quantity), ("I", "SELL", 500)
+            (request.product, request.side, request.quantity), ("D", "SELL", 500)
         )
         exits = [i for i in self.repo.intents.values() if i.purpose == "exit"]
         self.assertEqual(exits[-1].broker_id, "exit1")
@@ -620,7 +617,7 @@ class LiveGttCleanupTests(unittest.TestCase):
     def test_cleanup_submit_uncertainty_blocks_and_never_resubmits(self):
         self.adapter.status.return_value = self.snapshot(terminal=True)
         self.live_broker.positions.return_value = [
-            BrokerPosition("option", "I", 500)
+            BrokerPosition("option", "D", 500)
         ]
         self.live_broker.submit.side_effect = TimeoutError("secret")
         run = self.execution.cleanup(self.repo.get_run(self.run.id), at(15, 14))
@@ -638,7 +635,7 @@ class LiveGttCleanupTests(unittest.TestCase):
             {"filled_quantity": 500, "remaining_quantity": 500},
         )
         request = OrderRequest(
-            "exitgtt", "option", "I", "SELL", "LIMIT", 500, D(98)
+            "exitgtt", "option", "D", "SELL", "LIMIT", 500, D(98)
         )
         intent = self.repo.create_intent(run.id, run.version, "exit", request)
         self.repo.intents[intent.id].broker_id = "exit1"
@@ -655,9 +652,40 @@ class LiveGttCleanupTests(unittest.TestCase):
             {"filled_quantity": 500, "remaining_quantity": 500},
         )
         request = OrderRequest(
-            "exitgtt", "option", "I", "SELL", "LIMIT", 500, D(98)
+            "exitgtt", "option", "D", "SELL", "LIMIT", 500, D(98)
         )
         self.repo.create_intent(run.id, run.version, "exit", request)
         run = self.execution.cleanup(self.repo.get_run(run.id), at(15, 14))
         self.assertEqual(run.state, "reconciliation_required")
         self.live_broker.submit.assert_not_called()
+
+
+class LiveGttEntryProductTests(unittest.TestCase):
+    def test_live_gtt_entry_uses_delivery_product(self):
+        from app.services.paper_gtt import PaperGttBroker
+
+        repo = MemoryRepository()
+        gtts = MemoryGttRepository(repo)
+        market = FakeMarket()
+        paper = PaperBroker(market.quote, clock=lambda: market.now)
+        engine = StrategyEngine(
+            TradingSettings(
+                mode="live",
+                live_enabled=True,
+                client_id="client",
+                user_id="user",
+                limits=EntryLimits(
+                    D("200"), D("1000000"), D("100000"), D("2"), D("1")
+                ),
+            ),
+            repo,
+            market,
+            paper,
+            MagicMock(spec=["assert_owned"]),
+            gtt_broker=PaperGttBroker(paper),
+            gtt_repository=gtts,
+        )
+        engine.tick(market.now)
+        engine.tick(market.now)
+        self.assertEqual(gtts.get(1).request.product, "D")
+

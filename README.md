@@ -249,7 +249,8 @@ valid pinned account token for read-only live market data; all fills are simulat
 Only one worker per broker app/account/mode can hold the MySQL advisory lock.
 Use an external process supervisor and keep the worker available through 15:14 IST.
 SIGINT/SIGTERM stops the loop and preserves unresolved state. Stopping the worker
-does not cancel a GTT or close a position; MIS auto-square-off is only a backstop.
+does not cancel a GTT or close a position; the GTT stop/target stay at the broker,
+but the 15:14 cleanup will not run.
 On restart, `gtt_active` and `closing` runs resume the 15:14 cleanup; genuine
 uncertainty remains `reconciliation_required`.
 
@@ -282,26 +283,29 @@ October 2026 broker notices; review future notices for earlier restrictions or
 other contract-specific bans that calendar filtering cannot establish.
 
 `ORB_EXECUTION_BACKEND=gtt` (default) submits a multi-leg Upstox GTT with
-**product `I` (MIS/intraday)** after candle confirmation. ENTRY uses `IMMEDIATE`
-at the validated option ask; TARGET and STOPLOSS rules are included with the
-entry. Initial TP/SL are ask +8 / -5 premium points and are not modified after
-the fill. The worker places the GTT once and records the GTT ID. It does not
-poll order status, attach child intents, sync fills, retry the entry, or modify
-the GTT during the day; Upstox manages the entry, target and stop.
+**product `D` (delivery/CNC)** after candle confirmation. Upstox rejects intraday
+(MIS) BUY orders for options, so the entry and its exit legs must all use delivery.
+ENTRY uses `IMMEDIATE` at the validated option ask; TARGET and STOPLOSS rules are
+included with the entry. Initial TP/SL are ask +8 / -5 premium points and are not
+modified after the fill. The worker places the GTT once and records the GTT ID. It
+does not poll order status, attach child intents, sync fills, retry the entry, or
+modify the GTT during the day; Upstox manages the entry, target and stop.
 
 After the GTT acknowledgement the run is `gtt_active`. At **15:14 IST** the
 worker runs one cleanup: it reads the GTT, cancels the parent and any working
-child order, and reads the contract position for product `I`. A flat position
-closes the run. A non-zero position gets one bounded LIMIT SELL and the run is
-marked `closed`; Upstox MIS auto-square-off around 3:20–3:25 PM is the backstop.
+child order, and reads the contract position in the GTT's product (`D`). A flat
+position closes the run. A non-zero position gets one bounded LIMIT SELL in the
+same product and the run is marked `closed`; the GTT stop/target remain the
+primary exit and the 15:14 cleanup is the same-day backstop.
 If the GTT read/cancel or the sell submission is uncertain, the run becomes
 `reconciliation_required` and no second sell is submitted. The cleanup is
 idempotent across restarts: a recorded exit order closes without another sell;
 an unrecorded submission fails closed for manual checking.
 
-The worker must be running at 15:14. If it is down, the MIS position may still
-be auto-squared off, but the GTT exit legs remain valid for 365 days and must be
-cancelled manually. A GTT whose entry never fills also remains active until the
+The worker must be running at 15:14. If it is down, no broker auto-square-off
+applies to delivery options; the GTT stop/target legs remain valid for 365 days
+and the position can carry overnight, so cancel the GTT and manage the position
+manually. A GTT whose entry never fills also remains active until the
 15:14 cleanup. The 30-second order-status poller remains for ordinary live
 orders, not the GTT strategy. `/strategy/history` shows `gtt_active`, `closing`,
 `closed` and the cleanup events.
@@ -309,8 +313,8 @@ orders, not the GTT strategy. `/strategy/history` shows `gtt_active`, `closing`,
 GTT parent IDs and mutation intents are persisted. A successful create/cancel
 response is not evidence of fills or terminal cancellation. Lost creation
 acknowledgements require manual reconciliation and are never automatically
-retried. MIS auto-square-off is a backstop, not the primary exit; the 15:14
-cleanup submits the exit first.
+retried. The 15:14 cleanup submits the exit; no MIS auto-square-off is available
+for delivery option positions.
 
 `ORB_EXECUTION_BACKEND=orders` selects the existing ordinary limit-entry,
 broker stop-limit and application-monitored target path. New trades also use
