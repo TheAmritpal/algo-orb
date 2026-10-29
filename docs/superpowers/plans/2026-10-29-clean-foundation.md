@@ -159,9 +159,10 @@ Keep the new spec and plan, remove everything else that Git tracks:
 
 ```bash
 git ls-files | grep -v -E '^docs/superpowers/(specs/2026-10-29-clean-foundation-design\.md|plans/2026-10-29-clean-foundation\.md)$' | xargs git rm -q
-rm -rf .superpowers app tests migrations deploy reports .setting .opencode .codex alembic.ini compose.yaml Dockerfile .dockerignore README.md AGENTS.md pyproject.toml uv.lock .python-version .env.example 2>/dev/null || true
+rm -rf app tests migrations deploy reports .setting .opencode .codex alembic.ini compose.yaml Dockerfile .dockerignore README.md AGENTS.md pyproject.toml uv.lock .python-version .env.example 2>/dev/null || true
+find .superpowers/sdd -mindepth 1 -maxdepth 1 ! -name 2026-10-29-clean-foundation -exec rm -rf {} +
 ```
-Expected: only `.git`, the two docs, `.env*` (restored later), and ignored caches remain. Do not recreate the deleted MCP configs with literal credentials; if the harness later needs them, they must use environment references or omit the MCP entry, and `git grep` must show no secrets.
+Expected: only `.git`, the two docs, `.env*` (restored later), the current plan workspace, and ignored caches remain. Do not recreate the deleted MCP configs with literal credentials; if the harness later needs them, they must use environment references or omit the MCP entry, and `git grep` must show no secrets.
 
 - [ ] **Step 9: Restore env files and write `.gitignore`**
 
