@@ -14,7 +14,7 @@
       <dt>Upstox</dt>
       <dd class="status status-{{ upstox_status }}">{{ upstox_status | replace("_", " ") | capitalize }}</dd>
       <dt>Trading mode</dt>
-      <dd>paper</dd>
+      <dd>{{ trading_mode }}</dd>
     </dl>
     <p class="muted">No strategy is configured. Live order submission is disabled.</p>
   </section>

@@ -8,16 +8,24 @@ This foundation has **no strategy worker**. Only the `web` service is defined.
 
 ## 1. Database
 
-Create the database and an application user with a newly rotated password:
+Create the database and an application user with a newly rotated password.
+Grant schema privileges for the first migration, then revoke them:
 
 ```sql
 CREATE DATABASE algo_orb CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 CREATE USER 'algo_orb'@'%' IDENTIFIED BY '<rotated-password>';
-GRANT SELECT, INSERT, UPDATE, DELETE ON algo_orb.* TO 'algo_orb'@'%';
+GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX, DROP, REFERENCES
+  ON algo_orb.* TO 'algo_orb'@'%';
 ```
 
-The migration account needs `CREATE`, `ALTER`, `INDEX`, and `DROP` on
-`algo_orb`. Do not give the runtime account schema privileges after migrating.
+Run the migration (step 3), then reduce the runtime account to DML only:
+
+```sql
+REVOKE CREATE, ALTER, INDEX, DROP, REFERENCES ON algo_orb.* FROM 'algo_orb'@'%';
+```
+
+A future migration must temporarily re-grant those privileges, or use a separate
+migration account.
 
 ## 2. Environment
 

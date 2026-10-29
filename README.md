@@ -15,7 +15,7 @@ test -e .env || cp .env.example .env
 # Fill in real values in .env. Never commit it.
 uv run alembic upgrade head
 uv run python -m app.cli.sync_admin
-uv run uvicorn app.main:app --reload --no-access-log
+uv run uvicorn app.main:create_app --factory --reload --no-access-log
 ```
 
 Open http://localhost:8000/login. `/health` is a liveness check only.

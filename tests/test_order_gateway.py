@@ -40,6 +40,12 @@ class UnavailableBroker(UnknownBroker):
         raise BrokerUnavailable("connection lost")
 
 
+class ExplodingBroker(UnknownBroker):
+    def place_order(self, request):
+        self.calls.append(request.client_order_id)
+        raise RuntimeError("unexpected")
+
+
 def limit_order(client_order_id="abc", quantity=1, price=None):
     return OrderRequest(
         client_order_id=client_order_id,
@@ -112,3 +118,21 @@ def test_audit_failure_prevents_broker_call():
     with pytest.raises(RuntimeError):
         gateway.submit(limit_order())
     assert broker.calls == []
+
+
+def test_audit_completion_failure_after_acceptance_raises_unknown():
+    broker = PaperBroker()
+    gateway, audit, _ = build_gateway(broker=broker)
+    audit.fail_finish = True
+    with pytest.raises(BrokerUnknown):
+        gateway.submit(limit_order())
+    assert audit.statuses("abc") == ["INTENT"]
+
+
+def test_unexpected_broker_exception_marks_unknown():
+    broker = ExplodingBroker()
+    gateway, audit, _ = build_gateway(broker=broker)
+    with pytest.raises(BrokerUnknown):
+        gateway.submit(limit_order())
+    assert audit.statuses("abc") == ["INTENT", "UNKNOWN"]
+    assert broker.calls == ["abc"]

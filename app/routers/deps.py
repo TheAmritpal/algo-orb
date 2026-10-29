@@ -30,15 +30,39 @@ def require_csrf(request: Request, form_token: str | None) -> None:
         raise HTTPException(status_code=403, detail="Invalid CSRF token")
 
 
-def issue_csrf_cookie(request: Request, response: Response, max_age: int = 3600) -> str:
-    token = issue_csrf(request.app.state.settings.app_session_secret)
+def issue_csrf_token(request: Request) -> str:
+    return issue_csrf(request.app.state.settings.app_session_secret)
+
+
+def set_csrf_cookie(request: Request, response: Response, token: str) -> None:
     response.set_cookie(
         CSRF_COOKIE,
         token,
         httponly=True,
         samesite="lax",
         secure=request.app.state.settings.app_cookie_secure,
-        max_age=max_age,
+        max_age=request.app.state.settings.app_session_ttl_seconds,
+        path="/",
+    )
+
+
+def valid_csrf_cookie(request: Request) -> str | None:
+    cookie = request.cookies.get(CSRF_COOKIE)
+    if not cookie:
+        return None
+    secret = request.app.state.settings.app_session_secret
+    return cookie if verify_csrf(secret, cookie) else None
+
+
+def issue_csrf_cookie(request: Request, response: Response, max_age: int | None = None) -> str:
+    token = issue_csrf_token(request)
+    response.set_cookie(
+        CSRF_COOKIE,
+        token,
+        httponly=True,
+        samesite="lax",
+        secure=request.app.state.settings.app_cookie_secure,
+        max_age=max_age or request.app.state.settings.app_session_ttl_seconds,
         path="/",
     )
     return token

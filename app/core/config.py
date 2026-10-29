@@ -11,6 +11,21 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from app.core.errors import ConfigError
 
 
+class DatabaseSettings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        case_sensitive=False,
+    )
+
+    mysql_host: str
+    mysql_port: int = 3306
+    mysql_user: str
+    mysql_password: str
+    mysql_database: str
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",

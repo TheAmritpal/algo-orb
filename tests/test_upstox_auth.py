@@ -1,7 +1,7 @@
 import pytest
 
 from app.core.errors import UpstoxOAuthError
-from app.core.security import verify_state
+from app.core.security import sign_state, verify_state
 from app.services.upstox_auth import UpstoxAuthService
 from tests.fakes import FakeTokenStore, FakeUpstoxSdk
 
@@ -31,6 +31,19 @@ def test_bad_state_does_not_exchange(parts):
     service, sdk, _ = parts
     with pytest.raises(UpstoxOAuthError):
         service.complete("code-1", "tampered")
+    assert sdk.exchanges == []
+
+
+def test_expired_state_does_not_exchange(parts, settings, clock):
+    service, sdk, _ = parts
+    state = sign_state(
+        settings.app_session_secret,
+        {"n": "expired"},
+        ttl_seconds=1,
+        now=clock.time() - 10,
+    )
+    with pytest.raises(UpstoxOAuthError):
+        service.complete("code-1", state)
     assert sdk.exchanges == []
 
 

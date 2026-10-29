@@ -20,12 +20,13 @@ from app.core.errors import (
 from app.services.upstox_auth import TokenStore
 
 API_VERSION = "2.0"
+DEFINITE_REJECTION_STATUSES = frozenset({400, 401, 403, 404, 422})
 
 
 def map_api_exception(exc: Exception, *, submitting: bool) -> None:
     if isinstance(exc, ApiException):
         status = exc.status or 0
-        if 400 <= status < 500:
+        if status in DEFINITE_REJECTION_STATUSES:
             raise BrokerRejected("Upstox rejected the order request.") from exc
         if submitting:
             raise BrokerUnknown("Upstox order state is unknown.") from exc

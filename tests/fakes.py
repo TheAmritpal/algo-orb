@@ -120,6 +120,7 @@ class FakeAuditStore:
     def __init__(self) -> None:
         self.rows: dict[str, list[str]] = {}
         self.fail_create = False
+        self.fail_finish = False
 
     def create_intent(self, request, strategy_ref=None) -> None:
         if self.fail_create:
@@ -127,12 +128,18 @@ class FakeAuditStore:
         self.rows.setdefault(request.client_order_id, []).append("INTENT")
 
     def mark_accepted(self, client_order_id, broker_order_id, message=None) -> None:
+        if self.fail_finish:
+            raise RuntimeError("audit unavailable")
         self.rows.setdefault(client_order_id, []).append("ACCEPTED")
 
     def mark_rejected(self, client_order_id, code, message=None) -> None:
+        if self.fail_finish:
+            raise RuntimeError("audit unavailable")
         self.rows.setdefault(client_order_id, []).append("REJECTED")
 
     def mark_unknown(self, client_order_id, code, message=None) -> None:
+        if self.fail_finish:
+            raise RuntimeError("audit unavailable")
         self.rows.setdefault(client_order_id, []).append("UNKNOWN")
 
     def statuses(self, client_order_id: str) -> list[str]:

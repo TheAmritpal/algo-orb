@@ -7,7 +7,7 @@ import pymysql
 from pymysql.cursors import DictCursor
 from sqlalchemy.engine import URL
 
-from app.core.config import Settings, get_settings
+from app.core.config import DatabaseSettings, Settings, get_settings
 
 
 def get_connection(settings: Settings | None = None) -> pymysql.Connection:
@@ -24,7 +24,7 @@ def get_connection(settings: Settings | None = None) -> pymysql.Connection:
     )
 
 
-def sqlalchemy_url(settings: Settings) -> str:
+def sqlalchemy_url(settings: Settings | DatabaseSettings) -> str:
     return URL.create(
         "mysql+pymysql",
         username=settings.mysql_user,

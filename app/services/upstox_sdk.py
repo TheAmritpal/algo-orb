@@ -46,6 +46,7 @@ class OfficialUpstoxSdk:
                 client_secret=self.settings.upstox_api_secret,
                 redirect_uri=self.settings.upstox_redirect_uri,
                 grant_type="authorization_code",
+                _request_timeout=10,
             )
         except (ApiException, OSError, TypeError, ValueError) as exc:
             raise UpstoxOAuthError("Upstox code exchange failed.") from exc
@@ -59,7 +60,7 @@ class OfficialUpstoxSdk:
             configuration = Configuration()
             configuration.access_token = access_token
             client = ApiClient(configuration)
-            response = UserApi(client).get_profile(API_VERSION)
+            response = UserApi(client).get_profile(API_VERSION, _request_timeout=5)
         except (ApiException, OSError, TypeError, ValueError) as exc:
             raise UpstoxOAuthError("Upstox profile check failed.") from exc
         data = getattr(response, "data", None)

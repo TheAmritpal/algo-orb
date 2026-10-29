@@ -12,6 +12,7 @@ from app.brokers.upstox import UpstoxBroker
 from app.core.config import Settings, get_settings
 from app.core.errors import AppError
 from app.core.logging import configure_logging
+from app.core.security import LoginThrottle
 from app.repositories.audit import AuditRepository
 from app.repositories.sessions import SessionRepository
 from app.repositories.upstox_tokens import TokenRepository
@@ -58,6 +59,10 @@ def create_app(
         users=app.state.users,
         sessions=app.state.sessions,
         session_ttl_seconds=resolved.app_session_ttl_seconds,
+        throttle=LoginThrottle(
+            max_attempts=resolved.login_max_attempts,
+            window_seconds=resolved.login_window_seconds,
+        ),
     )
     app.state.upstox_auth = UpstoxAuthService(
         resolved,
@@ -100,6 +105,3 @@ def create_app(
         )
 
     return app
-
-
-app = create_app()

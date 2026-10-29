@@ -1,3 +1,5 @@
+import re
+
 import pymysql
 import pytest
 from starlette.testclient import TestClient
@@ -82,10 +84,12 @@ def failing_client(settings: Settings) -> TestClient:
 @pytest.fixture
 def login(client: TestClient):
     def perform() -> None:
-        csrf = client.get("/login").cookies["algo_csrf"]
+        page = client.get("/login")
+        match = re.search(r'name="csrf_token" value="([^"]+)"', page.text)
+        assert match, "login form must render a CSRF token"
         response = client.post(
             "/login",
-            data={"username": "admin", "password": "pw", "csrf_token": csrf},
+            data={"username": "admin", "password": "pw", "csrf_token": match.group(1)},
             follow_redirects=False,
         )
         assert response.status_code == 303

@@ -5,7 +5,7 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
-from app.core.config import get_settings
+from app.core.config import DatabaseSettings
 from app.repositories.database import sqlalchemy_url
 
 config = context.config
@@ -13,7 +13,7 @@ config = context.config
 if config.config_file_name is not None and config.get_section("loggers"):
     fileConfig(config.config_file_name)
 
-url = sqlalchemy_url(get_settings())
+url = sqlalchemy_url(DatabaseSettings())
 config.set_main_option("sqlalchemy.url", url.replace("%", "%%"))
 
 target_metadata = None
