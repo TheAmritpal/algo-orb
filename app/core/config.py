@@ -35,12 +35,12 @@ class Settings(BaseSettings):
     mysql_database: str
 
     upstox_environment: Literal["sandbox", "live"] = "sandbox"
-    upstox_sandbox_api_key: str
-    upstox_sandbox_api_secret: str
-    upstox_sandbox_redirect_uri: str
-    upstox_live_api_key: str
-    upstox_live_api_secret: str
-    upstox_live_redirect_uri: str
+    upstox_sandbox_api_key: str = ""
+    upstox_sandbox_api_secret: str = ""
+    upstox_sandbox_redirect_uri: str = ""
+    upstox_live_api_key: str = ""
+    upstox_live_api_secret: str = ""
+    upstox_live_redirect_uri: str = ""
     upstox_account_user_id: str = ""
 
     trading_mode: Literal["paper", "live"] = "paper"
