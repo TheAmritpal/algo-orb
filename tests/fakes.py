@@ -78,6 +78,14 @@ def make_user_store(password: str = "pw") -> FakeUserStore:
     return users
 
 
+def build_test_app(settings, *, users=None, sessions=None):
+    from app.main import create_app
+
+    resolved_users = users or make_user_store()
+    resolved_sessions = sessions or FakeSessionStore(resolved_users)
+    return create_app(settings, users=resolved_users, sessions=resolved_sessions)
+
+
 @dataclass
 class FakeAuditStore:
     rows: dict[str, list[str]] = field(default_factory=dict)
