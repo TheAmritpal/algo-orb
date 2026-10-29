@@ -564,6 +564,21 @@ class LiveGttCleanupTests(unittest.TestCase):
         self.adapter.cancel.assert_not_called()
         self.live_broker.submit.assert_not_called()
 
+    def test_cleanup_failed_entry_with_inactive_exits_closes_without_cancel(self):
+        self.adapter.status.return_value = GttSnapshot(
+            "GTT-1",
+            (
+                GttLeg("ENTRY", "FAILED", D(100), "BUY", "entry"),
+                GttLeg("TARGET", "INACTIVE", D(108), "SELL"),
+                GttLeg("STOPLOSS", "INACTIVE", D(95), "SELL"),
+            ),
+        )
+        self.live_broker.positions.return_value = []
+        run = self.execution.cleanup(self.repo.get_run(self.run.id), at(15, 14))
+        self.assertEqual(run.state, "closed")
+        self.adapter.cancel.assert_not_called()
+        self.live_broker.submit.assert_not_called()
+
     def test_prior_day_gtt_cleanup_runs_immediately_on_restart(self):
         self.repo.runs[self.run.id].key = RunKey(
             "client",

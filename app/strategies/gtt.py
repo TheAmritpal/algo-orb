@@ -84,7 +84,19 @@ class GttExecution:
             return engine._fail(
                 run, "GTT cleanup read failed; reconciliation required"
             )
-        if snapshot is not None and not snapshot.terminal:
+        failed_entry = False
+        if snapshot is not None:
+            entry = next(leg for leg in snapshot.legs if leg.strategy == "ENTRY")
+            failed_entry = entry.status in {
+                "FAILED",
+                "EXPIRED",
+                "CANCELLED",
+            } and not any(
+                leg.order_id
+                for leg in snapshot.legs
+                if leg.strategy != "ENTRY"
+            )
+        if snapshot is not None and not snapshot.terminal and not failed_entry:
             try:
                 self.broker.cancel(record)
             except BrokerOrderNotFound:
