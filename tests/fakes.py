@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from app.core.errors import UpstoxOAuthError
 from app.core.security import hash_password
@@ -116,9 +116,24 @@ def build_test_app(settings, *, users=None, sessions=None, tokens=None, sdk=None
     )
 
 
-@dataclass
 class FakeAuditStore:
-    rows: dict[str, list[str]] = field(default_factory=dict)
+    def __init__(self) -> None:
+        self.rows: dict[str, list[str]] = {}
+        self.fail_create = False
+
+    def create_intent(self, request, strategy_ref=None) -> None:
+        if self.fail_create:
+            raise RuntimeError("audit unavailable")
+        self.rows.setdefault(request.client_order_id, []).append("INTENT")
+
+    def mark_accepted(self, client_order_id, broker_order_id, message=None) -> None:
+        self.rows.setdefault(client_order_id, []).append("ACCEPTED")
+
+    def mark_rejected(self, client_order_id, code, message=None) -> None:
+        self.rows.setdefault(client_order_id, []).append("REJECTED")
+
+    def mark_unknown(self, client_order_id, code, message=None) -> None:
+        self.rows.setdefault(client_order_id, []).append("UNKNOWN")
 
     def statuses(self, client_order_id: str) -> list[str]:
         return self.rows.get(client_order_id, [])

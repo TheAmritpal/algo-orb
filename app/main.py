@@ -7,14 +7,20 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
+from app.brokers.paper import PaperBroker
+from app.brokers.upstox import UpstoxBroker
 from app.core.config import Settings, get_settings
 from app.core.errors import AppError
 from app.core.logging import configure_logging
+from app.repositories.audit import AuditRepository
 from app.repositories.sessions import SessionRepository
 from app.repositories.upstox_tokens import TokenRepository
 from app.repositories.users import UserRepository
 from app.routers import auth, pages, upstox
 from app.services.auth import AuthService
+from app.services.order_gateway import OrderGateway
+from app.services.readiness import ReadinessService
+from app.services.risk import RiskLimits
 from app.services.upstox_auth import UpstoxAuthService
 
 
@@ -41,8 +47,12 @@ def create_app(
     app.state.users = users or UserRepository(resolved)
     app.state.sessions = sessions or SessionRepository(resolved)
     app.state.tokens = tokens or TokenRepository(resolved)
-    app.state.audit = audit
-    app.state.broker = broker
+    app.state.audit = audit or AuditRepository(resolved)
+    app.state.broker = broker or (
+        UpstoxBroker(resolved, app.state.tokens)
+        if resolved.trading_mode == "live"
+        else PaperBroker()
+    )
     app.state.sdk = sdk
     app.state.auth = AuthService(
         users=app.state.users,
@@ -53,6 +63,17 @@ def create_app(
         resolved,
         app.state.tokens,
         sdk=sdk,
+    )
+    app.state.readiness = ReadinessService(resolved, app.state.tokens)
+    app.state.order_gateway = OrderGateway(
+        audit=app.state.audit,
+        broker=app.state.broker,
+        limits=RiskLimits(
+            max_notional=resolved.order_max_notional,
+            max_quantity=resolved.order_max_quantity,
+        ),
+        readiness=app.state.readiness,
+        mode=resolved.trading_mode,
     )
 
     static_dir = Path(__file__).resolve().parent / "static"
