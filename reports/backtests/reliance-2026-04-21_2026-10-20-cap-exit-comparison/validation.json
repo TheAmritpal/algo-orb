@@ -1,8 +1,0 @@
-{
-  "status": "passed",
-  "combinations": 10,
-  "trade_rows": 1048,
-  "source_hashes": 147,
-  "previous_reference_configurations_reproduced": 5,
-  "previous_capped_5_10_results_reproduced": 2
-}
