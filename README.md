@@ -49,3 +49,8 @@ uv run pytest
 ```
 
 Tests use fakes and never contact Upstox.
+
+## Production
+
+See [deploy/README.md](deploy/README.md) for Docker Compose, host Nginx/MySQL,
+migrations, and the admin sync command. There is no strategy worker.
