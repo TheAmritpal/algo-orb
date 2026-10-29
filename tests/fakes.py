@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from app.core.errors import UpstoxOAuthError
 from app.core.security import hash_password
 from app.services.auth import AuthenticatedUser, User
 
@@ -72,18 +73,47 @@ class FakeTokenStore:
         self.rows.pop((client_id, user_id), None)
 
 
+class FakeUpstoxSdk:
+    def __init__(self, user_id: str = "acct") -> None:
+        self.user_id = user_id
+        self.exchanges: list[str] = []
+        self.fail = False
+
+    def authorization_url(self, state: str) -> str:
+        return f"https://example.test/auth?state={state}"
+
+    def exchange_code(self, code: str) -> str:
+        if self.fail:
+            raise UpstoxOAuthError("exchange failed")
+        self.exchanges.append(code)
+        return "token-1"
+
+    def profile(self, access_token: str) -> str:
+        if self.fail:
+            raise UpstoxOAuthError("profile failed")
+        return self.user_id
+
+
 def make_user_store(password: str = "pw") -> FakeUserStore:
     users = FakeUserStore()
     users.upsert("admin", hash_password(password))
     return users
 
 
-def build_test_app(settings, *, users=None, sessions=None):
+def build_test_app(settings, *, users=None, sessions=None, tokens=None, sdk=None):
     from app.main import create_app
 
     resolved_users = users or make_user_store()
     resolved_sessions = sessions or FakeSessionStore(resolved_users)
-    return create_app(settings, users=resolved_users, sessions=resolved_sessions)
+    resolved_tokens = tokens or FakeTokenStore()
+    resolved_sdk = sdk or FakeUpstoxSdk(settings.upstox_account_user_id)
+    return create_app(
+        settings,
+        users=resolved_users,
+        sessions=resolved_sessions,
+        tokens=resolved_tokens,
+        sdk=resolved_sdk,
+    )
 
 
 @dataclass

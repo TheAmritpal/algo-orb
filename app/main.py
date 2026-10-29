@@ -11,9 +11,11 @@ from app.core.config import Settings, get_settings
 from app.core.errors import AppError
 from app.core.logging import configure_logging
 from app.repositories.sessions import SessionRepository
+from app.repositories.upstox_tokens import TokenRepository
 from app.repositories.users import UserRepository
-from app.routers import auth, pages
+from app.routers import auth, pages, upstox
 from app.services.auth import AuthService
+from app.services.upstox_auth import UpstoxAuthService
 
 
 def create_app(
@@ -38,7 +40,7 @@ def create_app(
     app.state.settings = resolved
     app.state.users = users or UserRepository(resolved)
     app.state.sessions = sessions or SessionRepository(resolved)
-    app.state.tokens = tokens
+    app.state.tokens = tokens or TokenRepository(resolved)
     app.state.audit = audit
     app.state.broker = broker
     app.state.sdk = sdk
@@ -47,12 +49,18 @@ def create_app(
         sessions=app.state.sessions,
         session_ttl_seconds=resolved.app_session_ttl_seconds,
     )
+    app.state.upstox_auth = UpstoxAuthService(
+        resolved,
+        app.state.tokens,
+        sdk=sdk,
+    )
 
     static_dir = Path(__file__).resolve().parent / "static"
     app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
     app.include_router(pages.router)
     app.include_router(auth.router)
+    app.include_router(upstox.router)
 
     @app.exception_handler(AppError)
     async def app_error_handler(request: Request, exc: AppError) -> HTMLResponse:
